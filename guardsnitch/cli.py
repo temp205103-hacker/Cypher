@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
+from threading import Timer
 from typing import Optional
+from urllib.error import URLError
+from urllib.request import urlopen
+import webbrowser
 
 import typer
 from rich.console import Console
@@ -75,6 +80,38 @@ def _ensure_initial_setup() -> bool:
     return True
 
 
+def _dashboard_is_running(url: str) -> bool:
+    try:
+        with urlopen(f"{url}/api/health", timeout=0.4) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        return data.get("name") == "GuardSnitch.ai" and data.get("scope") == "localhost"
+    except (OSError, URLError, ValueError):
+        return False
+
+
+def _launch_dashboard(port: int, no_browser: bool) -> None:
+    if not 1 <= port <= 65535:
+        console.print("[red]Dashboard port must be between 1 and 65535.[/]")
+        raise typer.Exit(code=2)
+
+    url = f"http://127.0.0.1:{port}"
+    if _dashboard_is_running(url):
+        if not no_browser:
+            webbrowser.open(url)
+        console.print(f"[green]GuardSnitch dashboard is already running:[/] {url}")
+        return
+
+    from guardsnitch.web.app import app as dashboard_app
+    import uvicorn
+
+    console.print(f"[bold cyan]Starting local dashboard:[/] {url}")
+    if not no_browser:
+        browser_timer = Timer(1.0, webbrowser.open, args=(url,))
+        browser_timer.daemon = True
+        browser_timer.start()
+    uvicorn.run(dashboard_app, host="127.0.0.1", port=port, log_level="warning")
+
+
 @app.callback(invoke_without_command=True)
 def root(
     ctx: typer.Context,
@@ -125,17 +162,14 @@ def root(
     if ctx.invoked_subcommand in {"vpn", "shield", "setup"} or ctx.resilient_parsing:
         return
 
+    if online and ctx.invoked_subcommand is None:
+        _launch_dashboard(port, no_browser)
+        return
+
     if not _ensure_initial_setup():
         raise typer.Exit(code=0)
 
     if ctx.invoked_subcommand:
-        return
-    if online:
-        console.print(
-            f"[bold cyan]Dashboard mode[/] would start on 127.0.0.1:{port}"
-            f"{' without opening a browser' if no_browser else ' and open the browser'}."
-        )
-        _stub("Local dashboard")
         return
 
     show_banner(console)
@@ -287,10 +321,11 @@ def shield_allow(process: str) -> None:
 @shield_app.command("block-ip")
 def shield_block_ip(ip: str) -> None:
     from guardsnitch.core.shield_service import block_remote_ip
-    if block_remote_ip(ip, 0):
+    result = block_remote_ip(ip, 0)
+    if result.get("blocked"):
         console.print(f"[green]Outbound traffic to {ip} blocked[/].")
     else:
-        console.print("[red]Could not create the Windows Firewall rule.[/] ")
+        console.print(f"[red]{result.get('error', 'Could not create the Windows Firewall rule.')}[/] ")
 
 
 malware_app = typer.Typer(help="Malware scanning and quarantine.")

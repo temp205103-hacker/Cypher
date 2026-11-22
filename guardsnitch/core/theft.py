@@ -5,10 +5,11 @@ from __future__ import annotations
 import ctypes
 import json
 import hashlib
+import hmac
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Iterable, Optional
 from base64 import urlsafe_b64decode
 import keyring
 from getpass import getpass
@@ -90,20 +91,22 @@ class TheftProtection:
         self.console.print("[green]Theft protection armed[/].")
         self.console.print("A simulated alert can be tested with [bold]GuardSnitch.ai theft test[/].")
 
-    def disarm(self) -> None:
-        pin = getpass("Enter the disarm PIN: ")
+    def disarm(self, pin: Optional[str] = None) -> bool:
+        if pin is None:
+            pin = getpass("Enter the disarm PIN: ")
         stored = keyring.get_password("GuardSnitch.ai", "disarm-pin")
         if not stored:
             self.console.print("[red]No disarm PIN is configured. Run GuardSnitch.ai setup.[/] ")
-            return
+            return False
         raw = urlsafe_b64decode(stored)
         salt, stored_hash = raw[:16], raw[16:]
         entered_hash = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), salt, 200_000)
-        if not hashlib.compare_digest(entered_hash, stored_hash):
+        if not hmac.compare_digest(entered_hash, stored_hash):
             self.console.print("[red]Incorrect PIN; theft protection remains armed.[/] ")
-            return
+            return False
         self._write_state(False)
         self.console.print("[green]Theft protection disarmed[/].")
+        return True
 
     def status(self) -> None:
         state = "ARMED" if self.is_armed() else "DISARMED"

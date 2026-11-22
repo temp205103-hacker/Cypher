@@ -185,6 +185,52 @@ def remove_firewall_rule(rule_name: str) -> dict[str, object]:
     }
 
 
+def block_remote_ip(remote_ip: str, remote_port: int = 0) -> dict[str, object]:
+    try:
+        address = str(ipaddress.ip_address(remote_ip))
+    except ValueError as exc:
+        return {"blocked": False, "error": f"Invalid remote IP address: {exc}"}
+    if ipaddress.ip_address(address).is_loopback:
+        return {"blocked": False, "error": "Refusing to block a loopback address."}
+    if remote_port and not 1 <= remote_port <= 65535:
+        return {"blocked": False, "error": "Invalid remote port."}
+    if os.name != "nt":
+        return {"blocked": False, "error": "Windows Firewall rules are supported only on Windows."}
+
+    identity = f"{address}|{remote_port}"
+    suffix = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    rule_name = f"GuardSnitch blocked IP {suffix}"
+    command = [
+        "netsh",
+        "advfirewall",
+        "firewall",
+        "add",
+        "rule",
+        f"name={rule_name}",
+        "dir=out",
+        "action=block",
+        f"remoteip={address}",
+    ]
+    if remote_port:
+        command.extend(["protocol=TCP", f"remoteport={remote_port}"])
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"blocked": False, "error": str(exc)}
+    if result.returncode:
+        return {
+            "blocked": False,
+            "error": result.stderr.strip() or result.stdout.strip() or f"netsh returned {result.returncode}",
+        }
+    return {"blocked": True, "ip": address, "port": remote_port or None, "rule": rule_name}
+
+
 def block_remote_connection(
     remote_ip: str,
     remote_port: int,

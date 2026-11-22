@@ -13,6 +13,7 @@ Windows updates, or backups. Some planned commands are not implemented yet; see
 - [Requirements](#requirements)
 - [Install and first-time setup](#install-and-first-time-setup)
 - [Run GuardSnitch.ai](#run-guardsnitchai)
+- [Web dashboard](#web-dashboard)
 - [Features and how to use them](#features-and-how-to-use-them)
 - [Current limitations](#current-limitations)
 
@@ -68,6 +69,34 @@ GuardSnitch.ai
 
 The commands `guardsnitch` and `gsnitch` are also installed as aliases. Run
 `GuardSnitch.ai setup` to reopen setup.
+
+## Web dashboard
+
+Start the dashboard from the installed environment:
+
+```powershell
+GuardSnitch.ai --online
+```
+
+It opens a browser at `http://127.0.0.1:8787`. The dashboard binds to loopback only and is not
+available to other devices on your network. Run the same command again while it is already open to
+reopen the existing dashboard. Use `--port 9000` to choose another port or `--no-browser` to start
+without opening a browser.
+
+The dashboard provides clickable controls for the implemented shield, malware scan and monitor,
+quarantine, VPN/IP diagnostics, theft protection, and browser-extension setup features. It asks for
+confirmation before operations that can change network settings, alter startup behavior, or move,
+restore, or delete files. Each completed or failed action displays a report and appears in the
+dashboard's recent activity. Reports are kept in memory and limited to the latest 50 actions.
+
+Basic profile preferences and a hashed disarm PIN can be saved in the dashboard. Use
+`GuardSnitch.ai setup` for SMTP credential setup and email verification. The phishing extension
+continues to run in Chrome or Edge, separately from the dashboard. Dashboard actions that require
+network access (such as VPN connections, public-IP checks, or configured test-email delivery) still
+use those services when you explicitly start them.
+
+The dashboard exposes only implemented operations. Planned CLI commands remain unavailable until
+their underlying features are implemented; they are identified as planned in the settings view.
 
 ## Features and how to use them
 
@@ -186,9 +215,10 @@ email.
 - The Downloads monitor is not a pre-execution blocker and does not monitor Windows Store installs.
   Keep Microsoft Defender real-time protection enabled.
 - The reverse-shell shield is heuristic and reacts after connections are established.
-- `GuardSnitch.ai scan`, `redact`, `install-hook`, `explain`, and `ask` are planned placeholders.
-- The `--online` dashboard option is not implemented yet.
-- Scheduled IP rotation and a VPN kill switch are not implemented.
+- `GuardSnitch.ai scan`, `redact`, `install-hook`, `explain`, `ask`, and `safe-run` are planned
+  placeholders.
+- Malware scheduling, IP rotation scheduling/history, and safe-zone management are not implemented.
+- A VPN kill switch is not implemented.
 
 Detection is not guaranteed. Keep Windows and security software up to date, use strong
 authentication, and maintain tested backups. A clean GuardSnitch.ai scan is not proof that a file
