@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "GuardSnitch.ai Phishing Guard",
+  "version": "0.1.0",
+  "description": "Checks browser page links against a locally cached phishing feed.",
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://raw.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "GuardSnitch.ai Phishing Guard",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "url-utils.js",
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

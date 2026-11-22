@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GuardSnitch.ai Phishing Guard</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Phishing Guard</h1>
+    <p id="status" role="status">Checking protection status...</p>
+    <button id="refresh" type="button">Update phishing list</button>
+    <p class="note">Page links are checked against a locally cached OpenPhish community feed. Visited URLs are not uploaded. The feed is not exhaustive.</p>
+  </main>
+  <script src="url-utils.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

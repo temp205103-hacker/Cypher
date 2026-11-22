@@ -1,0 +1,41 @@
+body {
+  color: #172033;
+  font: 14px/1.5 system-ui, sans-serif;
+  margin: 0;
+  min-width: 300px;
+}
+
+main {
+  padding: 16px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 10px;
+}
+
+#status {
+  margin: 0 0 12px;
+}
+
+button {
+  background: #155eef;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 12px;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.note {
+  color: #536076;
+  font-size: 12px;
+  margin: 12px 0 0;
+}
