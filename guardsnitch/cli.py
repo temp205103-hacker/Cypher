@@ -36,6 +36,7 @@ from guardsnitch.core import updater
 from guardsnitch.core.ai import answer_question, explain_risk
 from guardsnitch.core.redact import redact_text
 from guardsnitch.ip import history as ip_history_store
+from guardsnitch.web.api_version import DASHBOARD_API_VERSION
 
 console = Console()
 
@@ -127,13 +128,22 @@ def _ensure_initial_setup() -> bool:
     return True
 
 
-def _dashboard_is_running(url: str) -> bool:
+def _dashboard_status(url: str) -> str:
     try:
         with urlopen(f"{url}/api/health", timeout=0.4) as response:
             data = json.loads(response.read().decode("utf-8"))
-        return data.get("name") == "GuardSnitch.ai" and data.get("scope") == "localhost"
+        if not isinstance(data, dict):
+            return "not-running"
+        if data.get("name") != "GuardSnitch.ai" or data.get("scope") != "localhost":
+            return "not-running"
+        api_version = data.get("api_version")
+        return (
+            "current"
+            if isinstance(api_version, int) and api_version >= DASHBOARD_API_VERSION
+            else "outdated"
+        )
     except (OSError, URLError, ValueError):
-        return False
+        return "not-running"
 
 
 def _launch_dashboard(port: int, no_browser: bool) -> None:
@@ -142,7 +152,15 @@ def _launch_dashboard(port: int, no_browser: bool) -> None:
         raise typer.Exit(code=2)
 
     url = f"http://127.0.0.1:{port}"
-    if _dashboard_is_running(url):
+    status = _dashboard_status(url)
+    if status == "outdated":
+        console.print(
+            "[yellow]An older GuardSnitch dashboard is still running at this address.[/] "
+            "Stop it with Ctrl+C in the terminal where it was started, then run "
+            "[bold]GuardSnitch.ai --online[/] again."
+        )
+        return
+    if status == "current":
         if not no_browser:
             webbrowser.open(url)
         console.print(f"[green]GuardSnitch dashboard is already running:[/] {url}")

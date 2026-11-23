@@ -24,6 +24,26 @@ def test_online_flag_launches_dashboard_without_interactive_setup(monkeypatch) -
     assert launches == [(8787, True)]
 
 
+def test_health_endpoint_exposes_dashboard_api_version() -> None:
+    assert dashboard.health()["api_version"] >= 2
+
+
+def test_cli_detects_outdated_dashboard_process(monkeypatch) -> None:
+    from io import BytesIO
+
+    import guardsnitch.cli as cli
+
+    monkeypatch.setattr(
+        cli,
+        "urlopen",
+        lambda *_args, **_kwargs: BytesIO(
+            b'{"name":"GuardSnitch.ai","scope":"localhost"}'
+        ),
+    )
+
+    assert cli._dashboard_status("http://127.0.0.1:8787") == "outdated"
+
+
 def test_dashboard_action_returns_and_stores_completed_report(monkeypatch) -> None:
     dashboard._REPORTS.clear()
     monkeypatch.setattr(

@@ -43,6 +43,7 @@ from guardsnitch.ip.rotate import rotate as rotate_public_ip
 from guardsnitch.vpn.manager import VpnError, VpnManager
 from guardsnitch.vpn.providers.mock import MockProvider
 from guardsnitch.vpn.providers.openvpn import OpenVpnProvider
+from guardsnitch.web.api_version import DASHBOARD_API_VERSION
 
 
 _WEB_DIR = Path(__file__).parent
@@ -106,8 +107,12 @@ def index() -> str:
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"name": "GuardSnitch.ai", "scope": "localhost"}
+def health() -> dict[str, Any]:
+    return {
+        "name": "GuardSnitch.ai",
+        "scope": "localhost",
+        "api_version": DASHBOARD_API_VERSION,
+    }
 
 
 @app.get("/api/updates")

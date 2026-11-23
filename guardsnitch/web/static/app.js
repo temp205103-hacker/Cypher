@@ -209,6 +209,23 @@ async function loadDashboard() {
   renderDashboard(await response.json());
 }
 
+async function verifyBackendVersion() {
+  const button = document.querySelector('[data-action="malware.scan-machine"]');
+  const warning = byId("backend-version-warning");
+  try {
+    const response = await fetch("/api/health", { headers: { Accept: "application/json" }, cache: "no-store" });
+    const health = response.ok ? await response.json() : {};
+    const supported = Number(health.api_version) >= 2;
+    button.dataset.apiSupported = String(supported);
+    button.disabled = !supported || button.dataset.working === "true";
+    warning.hidden = supported;
+  } catch {
+    button.dataset.apiSupported = "false";
+    button.disabled = true;
+    warning.hidden = false;
+  }
+}
+
 async function loadReports() {
   const response = await fetch("/api/reports", { headers: { Accept: "application/json" }, cache: "no-store" });
   if (!response.ok) throw new Error(`Could not load action reports (${response.status}).`);
@@ -320,6 +337,7 @@ async function postAction(button, extra = {}) {
 
   const originalLabel = button.textContent;
   button.disabled = true;
+  if (action === "malware.scan-machine") button.dataset.working = "true";
   button.textContent = "Working…";
   try {
     const response = await fetch("/api/actions", {
@@ -341,7 +359,12 @@ async function postAction(button, extra = {}) {
   } catch (error) {
     toast(error.message || "Could not complete the action.", true);
   } finally {
-    button.disabled = false;
+    if (action === "malware.scan-machine") {
+      button.dataset.working = "false";
+      button.disabled = button.dataset.apiSupported !== "true";
+    } else {
+      button.disabled = false;
+    }
     button.textContent = originalLabel;
   }
 }
@@ -392,7 +415,7 @@ async function saveProfile(event) {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadDashboard(), loadReports(), loadUpdateStatus()]);
+    await Promise.all([loadDashboard(), loadReports(), loadUpdateStatus(), verifyBackendVersion()]);
   } catch (error) {
     toast(error.message || "Could not refresh the dashboard.", true);
   }
