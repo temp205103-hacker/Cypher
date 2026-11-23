@@ -13,6 +13,7 @@ Windows updates, or backups. See [Current limitations](#current-limitations).
 - [Install and first-time setup](#install-and-first-time-setup)
 - [Run GuardSnitch.ai](#run-guardsnitchai)
 - [Web dashboard](#web-dashboard)
+- [Updating GuardSnitch.ai](#updating-guardsnitchai)
 - [Features and how to use them](#features-and-how-to-use-them)
 - [Current limitations](#current-limitations)
 
@@ -97,6 +98,20 @@ use those services when you explicitly start them.
 The dashboard also includes source scanning, redaction, safe download inspection, recurring scan
 and IP schedules, rotation history, safe-zone management, and offline security guidance. These
 tools are also available from the CLI.
+
+## Updating GuardSnitch.ai
+
+The dashboard checks the trusted `main` branch and shows a red dot on the update icon when newer
+commits are available. Click the icon to fast-forward the checkout. The CLI equivalent is:
+
+```powershell
+GuardSnitch.ai --update
+```
+
+Updates require a Git clone with the expected GitHub `origin`, the `main` branch, and no local
+changes. Updates do not install dependencies; run `.\install.ps1` if an update changes project
+dependencies. Restart the dashboard or CLI after an update to load the new code. If updating is
+unavailable, use `git pull origin main` from the repository directory to see Git's detailed error.
 
 ## Features and how to use them
 

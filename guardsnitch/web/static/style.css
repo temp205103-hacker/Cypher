@@ -119,6 +119,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .local-badge .pulse { width: 6px; height: 6px; margin: 0; }
 .icon-button { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); border-radius: 9px; color: #b7c3da; background: var(--surface); font-size: 20px; cursor: pointer; }
 .icon-button:hover { color: var(--cyan); border-color: rgba(81, 228, 211, .35); }
+.update-button { position: relative; }
+.update-dot { position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border: 1px solid var(--surface); border-radius: 50%; background: #ff5f68; box-shadow: 0 0 8px rgba(255, 95, 104, .8); }
 .page-content { max-width: 1390px; margin: 0 auto; padding: 34px 42px 25px; }
 .view { display: none; animation: appear .2s ease; }
 .view.active { display: block; }

@@ -31,6 +31,7 @@ from guardsnitch.core import safe_run as safe_run_core
 from guardsnitch.core import safe_zones
 from guardsnitch.core import scheduling
 from guardsnitch.core import git_hook
+from guardsnitch.core import updater
 from guardsnitch.core.ai import answer_question, explain_risk
 from guardsnitch.core.redact import redact_text
 from guardsnitch.ip import history as ip_history_store
@@ -184,8 +185,24 @@ def root(
     ),
     port: int = typer.Option(8787, "--port", help="Local dashboard port."),
     no_browser: bool = typer.Option(False, "--no-browser", help="Do not open a browser."),
+    update: bool = typer.Option(False, "--update", help="Pull the latest trusted main-branch update."),
 ) -> None:
     """Run GuardSnitch or show the welcome screen."""
+    if update:
+        try:
+            result = updater.update_checkout()
+        except updater.UpdateError as exc:
+            console.print(f"[red]Update failed:[/] {exc}")
+            raise typer.Exit(code=1) from exc
+        if result["updated"]:
+            console.print(
+                f"[green]Updated GuardSnitch.ai:[/] {result['current']}. "
+                "Restart the CLI or dashboard to load the new version."
+            )
+        else:
+            console.print(f"[green]GuardSnitch.ai is up to date[/] ({result['current']}).")
+        raise typer.Exit(code=0)
+
     if vpn_mode is not None or vpn_flag:
         try:
             vpn_manager = _vpn_manager()

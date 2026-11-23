@@ -31,6 +31,7 @@ from guardsnitch.core import safe_run as safe_run_core
 from guardsnitch.core import safe_zones
 from guardsnitch.core import scheduling
 from guardsnitch.core import git_hook
+from guardsnitch.core import updater
 from guardsnitch.core.ai import answer_question, explain_risk
 from guardsnitch.core.redact import redact_text
 from guardsnitch.core import shield
@@ -106,6 +107,19 @@ def index() -> str:
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"name": "GuardSnitch.ai", "scope": "localhost"}
+
+
+@app.get("/api/updates")
+def update_status() -> dict[str, Any]:
+    return updater.check_for_updates()
+
+
+@app.post("/api/updates")
+def apply_update() -> dict[str, Any]:
+    try:
+        return updater.update_checkout()
+    except updater.UpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _status_section(operation: Callable[[], Any]) -> Any:

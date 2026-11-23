@@ -216,6 +216,46 @@ async function loadReports() {
   renderReports(reports, "all-reports");
 }
 
+async function loadUpdateStatus() {
+  const response = await fetch("/api/updates", { headers: { Accept: "application/json" }, cache: "no-store" });
+  if (!response.ok) throw new Error(`Could not check for updates (${response.status}).`);
+  const status = await response.json();
+  const dot = byId("update-dot");
+  const button = byId("update-button");
+  dot.hidden = !status.available;
+  button.title = status.error
+    ? `Update check unavailable: ${status.error}`
+    : status.available
+      ? (status.dirty
+        ? "Update available; commit or stash local changes before updating."
+        : `${status.behind} GuardSnitch.ai update(s) available`)
+      : "Check for GuardSnitch.ai updates";
+  button.setAttribute("aria-label", button.title);
+}
+
+async function updateNow() {
+  const button = byId("update-button");
+  if (!window.confirm("Check for updates and fast-forward this GuardSnitch.ai checkout if updates are available? Restart the dashboard after an update. Local changes will not be overwritten.")) return;
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/updates", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Update failed (${response.status}).`);
+    toast(data.updated
+      ? `Updated to ${data.current}. Restart GuardSnitch.ai to load the changes.`
+      : `GuardSnitch.ai is already up to date (${data.current}).`);
+    await loadUpdateStatus();
+  } catch (error) {
+    toast(error.message || "Could not update GuardSnitch.ai.", true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function toast(message, failed = false) {
   const node = document.createElement("div");
   node.className = `toast${failed ? " error" : ""}`;
@@ -351,7 +391,7 @@ async function saveProfile(event) {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadDashboard(), loadReports()]);
+    await Promise.all([loadDashboard(), loadReports(), loadUpdateStatus()]);
   } catch (error) {
     toast(error.message || "Could not refresh the dashboard.", true);
   }
@@ -369,6 +409,7 @@ document.addEventListener("click", (event) => {
 });
 
 byId("refresh-button").addEventListener("click", refreshAll);
+byId("update-button").addEventListener("click", updateNow);
 byId("profile-form").addEventListener("submit", saveProfile);
 byId("close-report").addEventListener("click", () => byId("report-dialog").close());
 byId("report-dialog").addEventListener("click", (event) => {
