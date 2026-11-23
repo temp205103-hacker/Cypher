@@ -154,6 +154,12 @@ function renderDashboard(data) {
       byId("profile-form").dataset.loaded = "true";
     }
   }
+  [["malware", "malware-schedule-status"], ["ip", "ip-schedule-status"]].forEach(([name, id]) => {
+    const state = data.schedules?.[name];
+    byId(id).textContent = statusError(state)
+      ? state.error
+      : (state?.enabled ? "Enabled in Windows Task Scheduler." : "No scheduled task is enabled.");
+  });
   byId("updated-at").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
@@ -237,6 +243,27 @@ async function postAction(button, extra = {}) {
   const action = button.dataset.action;
   const payload = { action, confirmed: Boolean(button.dataset.confirm), ...extra };
   if (action === "malware.scan") payload.path = byId("scan-path").value.trim() || null;
+  if (action === "scan") {
+    payload.path = byId("source-path").value.trim() || ".";
+    payload.staged = button.dataset.staged === "true";
+  }
+  if (action === "redact") {
+    payload.path = byId("redact-path").value.trim();
+    payload.output = byId("redact-output").value.trim() || null;
+  }
+  if (action === "install-hook") payload.path = byId("hook-path").value.trim() || null;
+  if (action === "explain") payload.item_id = byId("finding-id").value.trim();
+  if (action === "ask") payload.question = byId("security-question").value.trim();
+  if (action === "safe-run") payload.path = byId("safe-run-url").value.trim();
+  if (action === "malware.schedule") {
+    payload.interval = byId("malware-interval").value;
+    payload.scheduled_at = byId("schedule-time").value || "03:00";
+  }
+  if (action === "ip.schedule") {
+    payload.interval = byId("ip-schedule").value;
+    payload.scheduled_at = byId("ip-schedule-time").value || "03:00";
+  }
+  if (action.startsWith("theft.safe-zones.")) payload.ssid = byId("safe-zone-ssid").value.trim();
   if (action === "vpn.connect") payload.country = byId("vpn-country").value || null;
   if (action.startsWith("quarantine.")) payload.item_id = button.dataset.itemId;
   if (action === "shield.allow") payload.process_name = byId("process-name").value.trim();
@@ -265,6 +292,8 @@ async function postAction(button, extra = {}) {
     if (action === "theft.disarm") byId("disarm-pin").value = "";
     if (action === "shield.allow") byId("process-name").value = "";
     if (action === "shield.block-ip") byId("block-ip").value = "";
+    if (action === "theft.safe-zones.add" || action === "theft.safe-zones.remove") byId("safe-zone-ssid").value = "";
+    if (action === "redact") byId("redact-output").value = "";
     toast(report.status === "completed" ? `${action} completed. Report is ready.` : `${action} failed. See the report.`, report.status !== "completed");
     showReport(report);
     await refreshAll();

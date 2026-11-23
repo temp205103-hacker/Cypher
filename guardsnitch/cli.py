@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from threading import Timer
 from typing import Optional
 from urllib.error import URLError
@@ -25,6 +26,14 @@ from guardsnitch.ip.rotate import IpRotationError, rotate as rotate_public_ip
 from guardsnitch.ip.leaktest import LeakTestError, run_leak_test
 from guardsnitch.core import malware as malware_core
 from guardsnitch.core import quarantine as quarantine_core
+from guardsnitch.core import scanner as source_scanner
+from guardsnitch.core import safe_run as safe_run_core
+from guardsnitch.core import safe_zones
+from guardsnitch.core import scheduling
+from guardsnitch.core import git_hook
+from guardsnitch.core.ai import answer_question, explain_risk
+from guardsnitch.core.redact import redact_text
+from guardsnitch.ip import history as ip_history_store
 
 console = Console()
 
@@ -46,8 +55,44 @@ app = typer.Typer(
 )
 
 
-def _stub(feature: str) -> None:
-    console.print(f"[yellow]{feature}[/] is a planned module.")
+def _show_findings(findings: list[dict[str, object]], output_format: str, quiet: bool) -> None:
+    if output_format == "json":
+        console.print_json(json.dumps(findings))
+    elif output_format == "md":
+        console.print("| ID | Severity | Category | Path | Line | Finding |")
+        console.print("|---|---|---|---:|---:|---|")
+        for item in findings:
+            console.print(
+                f"| {item['id']} | {item['severity']} | {item['category']} | {item['path']} | "
+                f"{item['line']} | {item['message']} |"
+            )
+    elif output_format == "html":
+        rows = "".join(
+            "<tr>" + "".join(f"<td>{_html_escape(str(item[key]))}</td>" for key in
+                              ("id", "severity", "category", "path", "line", "message")) + "</tr>"
+            for item in findings
+        )
+        console.print(
+            "<!doctype html><meta charset=\"utf-8\"><table><thead><tr>"
+            "<th>ID</th><th>Severity</th><th>Category</th><th>Path</th><th>Line</th><th>Finding</th>"
+            f"</tr></thead><tbody>{rows}</tbody></table>",
+            markup=False,
+        )
+    else:
+        if not findings and not quiet:
+            console.print("[green]No findings.[/]")
+        for item in findings:
+            color = "red" if item["severity"] == "high" else "yellow"
+            console.print(
+                f"ID {item['id']} [{color}]{item['severity']}[/] {item['category']} "
+                f"{item['path']}:{item['line']} - {item['message']}: {item['snippet']}"
+            )
+    source_scanner.save_findings(findings)
+
+
+def _html_escape(value: str) -> str:
+    return (value.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#x27;"))
 
 
 def _vpn_manager() -> VpnManager:
@@ -193,6 +238,7 @@ def setup(reset: bool = typer.Option(False, "--reset", help="Reset and re-run se
 @app.command()
 def scan(
     path: Optional[str] = typer.Argument(None, help="File, folder, stdin (-), or staged git changes."),
+    staged: bool = typer.Option(False, "--staged", help="Scan staged Git blobs."),
     fix: bool = typer.Option(False, "--fix", help="Back up and offer approved fixes."),
     format: str = typer.Option("text", "--format", help="Output: text, json, md, or html."),
     quiet: bool = typer.Option(False, "--quiet", "-q"),
@@ -200,31 +246,114 @@ def scan(
     malware: bool = typer.Option(False, "--malware", help="Include malware scanning."),
 ) -> None:
     """Find secrets, PII, risky code and optionally malware."""
-    _stub("Secret/PII/risky-code scanner")
+    if path and staged:
+        console.print("[red]Choose either a path or --staged, not both.[/]")
+        raise typer.Exit(code=2)
+    if format not in {"text", "json", "md", "html"}:
+        console.print("[red]Format must be text, json, md, or html.[/]")
+        raise typer.Exit(code=2)
+    try:
+        if staged:
+            findings = source_scanner.scan_staged()
+        elif path:
+            findings = source_scanner.scan_path(path)
+        else:
+            findings = source_scanner.scan_paths([Path.cwd()])
+        if malware and path and path != "-":
+            result = malware_core.scan_file(path)
+            for item in result["findings"]:
+                findings.append({
+                    "id": f"malware-{item.get('signature')}",
+                    "path": item.get("path", path),
+                    "line": 0,
+                    "category": item.get("classification", "malware"),
+                    "severity": "high",
+                    "message": item.get("signature", "Malware detection"),
+                    "snippet": "",
+                })
+        if fix and path and Path(path).is_file():
+            target = Path(path).expanduser()
+            updated = redact_text(target.read_text(encoding="utf-8"))
+            if updated != target.read_text(encoding="utf-8") and typer.confirm(
+                f"Create a backup and redact recognized secrets/PII in {target}?", default=False
+            ):
+                backup = target.with_name(target.name + ".bak")
+                if backup.exists():
+                    raise ValueError(f"Refusing to overwrite existing backup: {backup}")
+                backup.write_bytes(target.read_bytes())
+                target.write_text(updated, encoding="utf-8")
+                console.print(f"Backup created at {backup}")
+                findings = source_scanner.scan_path(str(target))
+        _show_findings(findings, format, quiet)
+        if verbose:
+            console.print(f"{len(findings)} finding(s).")
+        if staged and findings:
+            raise typer.Exit(code=1)
+    except (OSError, RuntimeError, ValueError, malware_core.MalwareScanError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
-def redact(file: str = typer.Argument(..., help="File to redact.")) -> None:
+def redact(
+    file: str = typer.Argument(..., help="File to redact."),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output path; defaults to <file>.redacted."),
+) -> None:
     """Create a safe redacted copy."""
-    _stub("Redaction")
+    source = Path(file).expanduser()
+    if not source.is_file() or source.is_symlink():
+        console.print(f"[red]Not a regular file: {source}[/]")
+        raise typer.Exit(code=1)
+    destination = Path(output).expanduser() if output else source.with_name(source.name + ".redacted")
+    if destination.resolve() == source.resolve():
+        console.print("[red]Redacted output must not overwrite the source file.[/]")
+        raise typer.Exit(code=2)
+    if destination.exists():
+        console.print(f"[red]Refusing to overwrite existing output: {destination}[/]")
+        raise typer.Exit(code=1)
+    try:
+        text = source.read_text(encoding="utf-8")
+        redacted = redact_text(text)
+        destination.write_text(redacted, encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        console.print(f"[red]Could not redact file: {exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]Redacted copy saved:[/] {destination}")
 
 
 @app.command("install-hook")
 def install_hook() -> None:
     """Add a git pre-commit hook that blocks risky commits."""
-    _stub("Git pre-commit hook")
+    try:
+        hook = git_hook.install_pre_commit_hook()
+    except (OSError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]Git pre-commit scan installed:[/] {hook}")
 
 
 @app.command()
 def explain(finding_id: str = typer.Argument(..., help="Finding ID.")) -> None:
     """Explain a previous finding."""
-    _stub("Finding explanation")
+    try:
+        finding = next(
+            (item for item in source_scanner.load_findings() if item.get("id") == finding_id),
+            None,
+        )
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    if finding is None:
+        console.print(f"[red]No saved finding exists with ID {finding_id}.[/]")
+        raise typer.Exit(code=1)
+    summary = f"{finding.get('category')} at {finding.get('path')}:{finding.get('line')}"
+    console.print(explain_risk(summary, str(finding.get("snippet", ""))))
 
 
 @app.command()
 def ask(question: str = typer.Argument(..., help="Question for the local AI layer.")) -> None:
     """Ask GuardSnitch for security guidance."""
-    _stub("AI question interface")
+    console.print(answer_question(question))
 
 
 shield_app = typer.Typer(help="Reverse-shell and reverse-TCP protection.")
@@ -443,8 +572,17 @@ def malware_monitor_stop() -> None:
 
 
 @malware_app.command("schedule")
-def malware_schedule(interval: str = typer.Argument(..., help="daily or hourly")) -> None:
-    _stub(f"{interval} malware schedule")
+def malware_schedule(interval: str = typer.Argument(..., help="daily, hourly, or off")) -> None:
+    try:
+        if interval.casefold() == "off":
+            result = scheduling.remove_schedule("malware")
+            console.print(result or "Malware scan schedule removed.")
+        else:
+            result = scheduling.set_schedule("malware", interval)
+            console.print(result or f"Malware scans scheduled {interval}.")
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
 
 
 quarantine_app = typer.Typer(help="Review quarantined files.")
@@ -518,9 +656,14 @@ def quarantine_delete(item_id: str) -> None:
 
 
 @app.command("safe-run")
-def safe_run(url: str = typer.Argument(..., help="Script or package URL.")) -> None:
-    """Download, inspect, then run only with explicit approval."""
-    _stub("Safe-run inspector")
+def safe_run(url: str = typer.Argument(..., help="Public HTTP(S) script URL to inspect.")) -> None:
+    """Download and inspect a public script without executing it."""
+    try:
+        result = safe_run_core.inspect_url(url)
+    except (safe_run_core.SafeRunError, OSError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print_json(json.dumps(result))
 
 
 ip_app = typer.Typer(help="Public-IP shield and leak checks.")
@@ -627,6 +770,12 @@ def ip_rotate(dry_run: bool = typer.Option(False, "--dry-run")) -> None:
     except (IpRotationError, VpnError) as exc:
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(code=1) from exc
+    if not dry_run:
+        try:
+            ip_history_store.record_rotation(result)
+        except OSError as exc:
+            console.print(f"[red]Rotation completed, but history could not be saved: {exc}[/]")
+            raise typer.Exit(code=1) from exc
     if result["dry_run"]:
         console.print(f"Would connect to: {result['to_profile']}")
         return
@@ -639,18 +788,47 @@ def ip_rotate(dry_run: bool = typer.Option(False, "--dry-run")) -> None:
 
 
 @ip_app.command("schedule")
-def ip_schedule(interval: str = typer.Argument(..., help="daily")) -> None:
-    _stub(f"IP {interval} schedule")
+def ip_schedule(
+    interval: str = typer.Argument(..., help="daily or off"),
+    at: str = typer.Option("03:00", "--at", help="Daily time in 24-hour HH:MM format."),
+) -> None:
+    try:
+        if interval.casefold() == "off":
+            result = scheduling.remove_schedule("ip")
+            console.print(result or "IP rotation schedule removed.")
+        else:
+            result = scheduling.set_schedule("ip", interval, at)
+            console.print(result or f"Daily IP rotation scheduled for {at}.")
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
 
 
 @ip_app.command("history")
 def ip_history() -> None:
-    _stub("IP rotation history")
+    try:
+        entries = ip_history_store.load_history()
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    if not entries:
+        console.print("No IP rotation history.")
+        return
+    for item in entries:
+        console.print(
+            f"{item.get('timestamp')}  {item.get('from_profile')} -> {item.get('to_profile')}  "
+            f"{item.get('previous_ip', 'preview')} -> {item.get('current_ip', 'preview')}"
+        )
 
 
 @ip_app.command("stop")
 def ip_stop() -> None:
-    _stub("IP shield stop")
+    try:
+        result = scheduling.remove_schedule("ip")
+        console.print(result or "Scheduled IP rotation stopped.")
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
 
 
 @ip_app.command("leak-test")
@@ -705,8 +883,28 @@ def theft_test() -> None:
 
 
 @theft_app.command("safe-zones")
-def theft_safe_zones() -> None:
-    console.print("[yellow]Safe-zone management is next: add/remove trusted Wi-Fi SSIDs.[/] ")
+def theft_safe_zones(
+    operation: str = typer.Argument("list", help="list, add, or remove"),
+    ssid: Optional[str] = typer.Argument(None, help="Wi-Fi network name for add/remove."),
+) -> None:
+    try:
+        if operation == "list":
+            zones = safe_zones.list_safe_zones()
+        elif operation == "add" and ssid:
+            zones = safe_zones.add_safe_zone(ssid)
+        elif operation == "remove" and ssid:
+            zones = safe_zones.remove_safe_zone(ssid)
+        else:
+            raise ValueError("Usage: theft safe-zones [list|add|remove] [SSID]")
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    if not zones:
+        console.print("No trusted Wi-Fi safe zones configured.")
+    else:
+        console.print("Trusted Wi-Fi networks:")
+        for zone in zones:
+            console.print(f"  {zone}")
 
 
 def main() -> None:

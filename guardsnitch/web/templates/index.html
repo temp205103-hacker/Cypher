@@ -151,7 +151,7 @@
               <label class="toggle-row"><input type="checkbox" name="theft_protection"><span><strong>Theft protection</strong><small>Enable theft-related features</small></span></label>
               <label class="toggle-row"><input type="checkbox" name="reverse_shell_shield" checked><span><strong>Reverse-shell shield</strong><small>Enable connection monitoring</small></span></label>
               <label class="toggle-row"><input type="checkbox" name="malware_scans" checked><span><strong>Malware scans</strong><small>Enable local file scanning</small></span></label>
-              <label class="toggle-row"><input type="checkbox" name="ip_rotation"><span><strong>IP rotation preference</strong><small>Preference only; scheduling is not implemented</small></span></label>
+              <label class="toggle-row"><input type="checkbox" name="ip_rotation"><span><strong>IP rotation preference</strong><small>Configure a recurring schedule in Local Security Tools below</small></span></label>
               <label class="toggle-row"><input type="checkbox" name="consent_location"><span><strong>Location consent</strong><small>Allow location use for theft alert features</small></span></label>
               <label class="toggle-row"><input type="checkbox" name="consent_webcam"><span><strong>Webcam consent</strong><small>Allow webcam use if a future theft response supports it</small></span></label>
             </div>
@@ -159,19 +159,33 @@
             <div class="form-footer"><span class="micro-copy">Only explicit consent settings enable sensitive sensor use.</span><button class="button button-primary" type="submit">Save settings</button></div>
           </form>
 
-          <article class="panel panel-spaced"><div class="panel-heading"><div><p class="eyebrow">FEATURE AVAILABILITY</p><h2>Planned commands</h2></div><span class="tag tag-warning">Not available yet</span></div><p class="panel-copy">These commands are in the CLI roadmap but are currently placeholders, so this dashboard will not report them as completed:</p>          <div class="planned-list">
-            <button type="button" data-action="scan">Source code scan</button>
-            <button type="button" data-action="redact">Redaction</button>
-            <button type="button" data-action="install-hook">Git hook installer</button>
-            <button type="button" data-action="explain">Finding explanations</button>
-            <button type="button" data-action="ask">AI questions</button>
-            <button type="button" data-action="safe-run">Safe-run inspection</button>
-            <button type="button" data-action="malware.schedule">Malware scheduling</button>
-            <button type="button" data-action="ip.schedule">IP scheduling</button>
-            <button type="button" data-action="ip.history">IP rotation history</button>
-            <button type="button" data-action="ip.stop">IP shield stop</button>
-            <button type="button" data-action="theft.safe-zones">Safe-zone management</button>
-          </div></article>
+          <article class="panel panel-spaced"><div class="panel-heading"><div><p class="eyebrow">LOCAL SECURITY TOOLS</p><h2>Code, schedules & safe zones</h2></div><span class="tag">Runs on this device</span></div>
+            <p class="panel-copy">Source scans are heuristic and may miss issues. Safe-run downloads are inspected as text only and are never executed.</p>
+            <div class="field-row"><label for="source-path">Scan file or folder (blank scans this project)</label><input id="source-path" placeholder="C:\path\to\project" autocomplete="off"></div>
+            <div class="button-row"><button class="button button-primary" data-action="scan">Scan source</button><button class="button button-secondary" data-action="scan" data-staged="true">Scan staged Git changes</button></div>
+            <div class="field-row"><label for="hook-path">Git repository for pre-commit hook (blank uses current directory)</label><input id="hook-path" placeholder="C:\path\to\repository" autocomplete="off"></div>
+            <button class="button button-secondary" data-action="install-hook" data-confirm="Install a Git pre-commit hook in this repository? Existing hook will be preserved and chained.">Install pre-commit scan hook</button>
+            <div class="field-row"><label for="redact-path">Create a redacted copy of a text file</label><input id="redact-path" placeholder="C:\path\to\file.txt" autocomplete="off"></div>
+            <div class="field-row"><label for="redact-output">Output path (optional)</label><input id="redact-output" placeholder="Defaults to <file>.redacted" autocomplete="off"></div>
+            <button class="button button-secondary" data-action="redact">Redact to a separate file</button>
+            <div class="field-row"><label for="finding-id">Explain saved finding ID</label><input id="finding-id" placeholder="Finding ID from a source scan" autocomplete="off"></div>
+            <button class="button button-secondary" data-action="explain">Explain finding</button>
+            <div class="field-row"><label for="security-question">Ask for local security guidance</label><input id="security-question" placeholder="How should I handle an exposed token?" autocomplete="off"></div>
+            <button class="button button-secondary" data-action="ask">Ask GuardSnitch</button>
+            <div class="field-row"><label for="safe-run-url">Public script URL to inspect (not executed)</label><input id="safe-run-url" type="url" placeholder="https://example.com/script.py" autocomplete="url"></div>
+            <button class="button button-secondary" data-action="safe-run">Inspect download</button>
+            <div class="field-row"><label for="malware-interval">Malware scan schedule (Windows Task Scheduler)</label><select id="malware-interval"><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="off">Off</option></select></div>
+            <div class="field-row"><label for="schedule-time">Daily schedule time</label><input id="schedule-time" type="time" value="03:00"></div>
+            <button class="button button-secondary" data-action="malware.schedule">Save malware schedule</button>
+            <p class="micro-copy" id="malware-schedule-status">Checking scheduled scan…</p>
+            <div class="field-row"><label for="ip-schedule">Daily IP rotation schedule</label><select id="ip-schedule"><option value="daily">Daily</option><option value="off">Off</option></select></div>
+            <div class="field-row"><label for="ip-schedule-time">Rotation time</label><input id="ip-schedule-time" type="time" value="03:00"></div>
+            <div class="button-row"><button class="button button-secondary" data-action="ip.schedule">Save IP schedule</button><button class="button button-quiet" data-action="ip.history">View rotation history</button><button class="button button-quiet" data-action="ip.stop">Stop IP schedule</button></div>
+            <p class="micro-copy" id="ip-schedule-status">Checking IP schedule…</p>
+            <div class="field-row"><label for="safe-zone-ssid">Trusted Wi-Fi network name (SSID)</label><input id="safe-zone-ssid" maxlength="32" placeholder="Home Wi-Fi"></div>
+            <div class="button-row"><button class="button button-secondary" data-action="theft.safe-zones.add">Add safe zone</button><button class="button button-quiet" data-action="theft.safe-zones.remove">Remove safe zone</button><button class="button button-quiet" data-action="theft.safe-zones">List safe zones</button></div>
+            <p class="micro-copy">Safe-zone SSIDs are stored locally for future signal evaluation; they do not enable background theft detection.</p>
+          </article>
         </section>
 
         <footer class="footer"><span>GuardSnitch.ai</span><span>Local-first, user-controlled security tools.</span></footer>

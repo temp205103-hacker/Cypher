@@ -26,9 +26,17 @@ from rich.console import Console
 from guardsnitch.config import GuardConfig
 from guardsnitch.core import malware as malware_core
 from guardsnitch.core import quarantine as quarantine_core
+from guardsnitch.core import scanner as source_scanner
+from guardsnitch.core import safe_run as safe_run_core
+from guardsnitch.core import safe_zones
+from guardsnitch.core import scheduling
+from guardsnitch.core import git_hook
+from guardsnitch.core.ai import answer_question, explain_risk
+from guardsnitch.core.redact import redact_text
 from guardsnitch.core import shield
 from guardsnitch.core.theft import TheftProtection
 from guardsnitch.ip.leaktest import run_leak_test
+from guardsnitch.ip import history as ip_history_store
 from guardsnitch.ip.rotate import rotate as rotate_public_ip
 from guardsnitch.vpn.manager import VpnError, VpnManager
 from guardsnitch.vpn.providers.mock import MockProvider
@@ -47,16 +55,22 @@ app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="stat
 class ActionRequest(BaseModel):
     action: str
     path: Optional[str] = None
+    output: Optional[str] = None
     country: Optional[str] = None
     item_id: Optional[str] = None
     process_name: Optional[str] = None
     ip: Optional[str] = None
     pin: Optional[str] = None
     dry_run: bool = False
+    staged: bool = False
     confirmed: bool = False
     name: Optional[str] = None
     alert_email: Optional[str] = None
     ai_mode: Optional[str] = None
+    interval: Optional[str] = None
+    scheduled_at: str = "03:00"
+    question: Optional[str] = None
+    ssid: Optional[str] = None
     theft_protection: bool = False
     reverse_shell_shield: bool = True
     malware_scans: bool = True
@@ -156,6 +170,10 @@ def dashboard() -> dict[str, Any]:
         "vpn": _status_section(_vpn_dashboard_state),
         "theft": {
             "armed": _status_section(lambda: TheftProtection().is_armed()),
+        },
+        "schedules": {
+            "malware": _status_section(lambda: scheduling.schedule_status("malware")),
+            "ip": _status_section(lambda: scheduling.schedule_status("ip")),
         },
     }
 
@@ -275,7 +293,62 @@ def _perform_action(payload: ActionRequest) -> Any:
         }
     if action == "theft.status":
         return {"armed": TheftProtection().is_armed()}
+    if action == "malware.schedule.status":
+        return scheduling.schedule_status("malware")
+    if action == "ip.schedule.status":
+        return scheduling.schedule_status("ip")
+    if action == "ip.history":
+        return ip_history_store.load_history()
+    if action == "theft.safe-zones":
+        return safe_zones.list_safe_zones()
 
+    if action == "scan":
+        if payload.staged:
+            findings = source_scanner.scan_staged(Path(payload.path).expanduser() if payload.path else None)
+        else:
+            findings = source_scanner.scan_path(payload.path or ".")
+        source_scanner.save_findings(findings)
+        return {"findings": findings, "count": len(findings)}
+    if action == "redact":
+        source = Path(_required(payload.path, "File path")).expanduser()
+        if not source.is_file() or source.is_symlink():
+            raise ValueError(f"Not a regular file: {source}")
+        destination = Path(payload.output).expanduser() if payload.output else source.with_name(source.name + ".redacted")
+        if destination.resolve() == source.resolve():
+            raise ValueError("Redacted output must not overwrite the source file.")
+        if destination.exists():
+            raise ValueError(f"Refusing to overwrite existing output: {destination}")
+        destination.write_text(redact_text(source.read_text(encoding="utf-8")), encoding="utf-8")
+        return {"source": str(source), "output": str(destination)}
+    if action == "install-hook":
+        _require_confirmation(payload, "Confirm installing a Git pre-commit scan hook.")
+        return {"hook": str(git_hook.install_pre_commit_hook(Path(payload.path).expanduser() if payload.path else None))}
+    if action == "explain":
+        finding_id = _required(payload.item_id, "Finding ID")
+        finding = next(
+            (item for item in source_scanner.load_findings() if item.get("id") == finding_id),
+            None,
+        )
+        if finding is None:
+            raise ValueError(f"No saved finding exists with ID {finding_id}.")
+        summary = f"{finding.get('category')} at {finding.get('path')}:{finding.get('line')}"
+        return {"finding": finding, "explanation": explain_risk(summary, str(finding.get("snippet", "")))}
+    if action == "ask":
+        return {"answer": answer_question(_required(payload.question, "Question"))}
+    if action == "safe-run":
+        return safe_run_core.inspect_url(_required(payload.path, "Public URL"))
+    if action in {"malware.schedule", "ip.schedule"}:
+        kind = "malware" if action == "malware.schedule" else "ip"
+        interval = _required(payload.interval, "Schedule interval")
+        if interval.casefold() in {"off", "stop"}:
+            return {"removed": scheduling.remove_schedule(kind)}
+        return {"scheduled": scheduling.set_schedule(kind, interval, payload.scheduled_at)}
+    if action == "ip.stop":
+        return {"removed": scheduling.remove_schedule("ip")}
+    if action == "theft.safe-zones.add":
+        return safe_zones.add_safe_zone(_required(payload.ssid, "Wi-Fi network name"))
+    if action == "theft.safe-zones.remove":
+        return safe_zones.remove_safe_zone(_required(payload.ssid, "Wi-Fi network name"))
     if action == "malware.scan":
         target = payload.path or str(malware_core.default_downloads_dir())
         scan_result = malware_core.scan_file(target)
@@ -309,7 +382,10 @@ def _perform_action(payload: ActionRequest) -> Any:
     if action == "ip.rotate":
         if not payload.dry_run:
             _require_confirmation(payload, "Confirm switching OpenVPN profiles and checking your public IP.")
-        return rotate_public_ip(dry_run=payload.dry_run)
+        result = rotate_public_ip(dry_run=payload.dry_run)
+        if not payload.dry_run:
+            ip_history_store.record_rotation(result)
+        return result
     if action == "ip.leak-test":
         return run_leak_test()
 
@@ -352,20 +428,6 @@ def _perform_action(payload: ActionRequest) -> Any:
         _require_confirmation(payload, "This safe simulation may send a configured test email. Continue?")
         return _capture_theft_action("test")
 
-    if action in {
-        "scan",
-        "redact",
-        "install-hook",
-        "explain",
-        "ask",
-        "safe-run",
-        "malware.schedule",
-        "ip.schedule",
-        "ip.history",
-        "ip.stop",
-        "theft.safe-zones",
-    }:
-        raise ValueError(f"{action} is a planned command and is not implemented yet.")
     raise ValueError(f"Unknown dashboard action: {action}")
 
 

@@ -5,8 +5,7 @@ It brings together selected tools for browser phishing checks, VPN management, l
 scanning, suspicious-connection alerts, and theft-protection workflows.
 
 It is **supplementary protection**, not a replacement for Microsoft Defender, Windows Firewall,
-Windows updates, or backups. Some planned commands are not implemented yet; see
-[Current limitations](#current-limitations).
+Windows updates, or backups. See [Current limitations](#current-limitations).
 
 ## Contents
 
@@ -95,8 +94,9 @@ continues to run in Chrome or Edge, separately from the dashboard. Dashboard act
 network access (such as VPN connections, public-IP checks, or configured test-email delivery) still
 use those services when you explicitly start them.
 
-The dashboard exposes only implemented operations. Planned CLI commands remain unavailable until
-their underlying features are implemented; they are identified as planned in the settings view.
+The dashboard also includes source scanning, redaction, safe download inspection, recurring scan
+and IP schedules, rotation history, safe-zone management, and offline security guidance. These
+tools are also available from the CLI.
 
 ## Features and how to use them
 
@@ -208,6 +208,30 @@ email; without sender credentials, delivery is simulated rather than sent.
 a live theft response. If location consent and email delivery are configured, it may send a test
 email.
 
+### Source scanning and privacy tools
+
+```powershell
+GuardSnitch.ai scan . --format json
+GuardSnitch.ai scan --staged
+GuardSnitch.ai redact .\notes.txt
+GuardSnitch.ai explain <finding-id>
+GuardSnitch.ai ask "How should I handle an exposed token?"
+GuardSnitch.ai safe-run https://example.com/script.py
+GuardSnitch.ai install-hook
+```
+
+The local source scanner checks for selected secret/PII patterns and risky code constructs; it is
+heuristic and can produce false positives or miss vulnerabilities. `redact` writes a separate
+`.redacted` file by default. `safe-run` inspects public HTTP(S) downloads as text and never executes
+them. The pre-commit hook scans staged Git content and blocks a commit when it reports findings.
+
+Recurring schedules use Windows Task Scheduler. Configure malware scans with
+`GuardSnitch.ai malware schedule hourly`, `daily`, or `off`; configure IP rotation with
+`GuardSnitch.ai ip schedule daily --at 03:00` or `off`. Use `GuardSnitch.ai ip history` to review
+local rotation attempts and `GuardSnitch.ai ip stop` to remove its scheduled task. Trusted Wi-Fi
+safe zones can be managed with `GuardSnitch.ai theft safe-zones add "Network name"`,
+`remove "Network name"`, and `list`; background theft detection is not implemented.
+
 ## Current limitations
 
 - There is no background theft-signal detector yet. Arming theft protection alone will not
@@ -215,9 +239,10 @@ email.
 - The Downloads monitor is not a pre-execution blocker and does not monitor Windows Store installs.
   Keep Microsoft Defender real-time protection enabled.
 - The reverse-shell shield is heuristic and reacts after connections are established.
-- `GuardSnitch.ai scan`, `redact`, `install-hook`, `explain`, `ask`, and `safe-run` are planned
-  placeholders.
-- Malware scheduling, IP rotation scheduling/history, and safe-zone management are not implemented.
+- Source scanning checks selected local patterns; it is not a comprehensive vulnerability or
+  malware scanner.
+- Safe-zone SSIDs are stored for future signal evaluation; they do not enable background theft
+  detection.
 - A VPN kill switch is not implemented.
 
 Detection is not guaranteed. Keep Windows and security software up to date, use strong
