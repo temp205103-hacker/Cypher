@@ -180,10 +180,11 @@ function renderItems(listId, countId, items, type) {
     const id = escapeHtml(item.id);
     const path = escapeHtml(item.path);
     const title = escapeHtml(`${item.classification || item.status || "File"} · ${item.signature || item.engine || "Local scan"}`);
+    const stop = `<button class="mini-button danger" data-action="malware.stop-process" data-item-id="${id}" data-confirm="Stop every running process whose executable matches this finding? A false positive may close a legitimate program.">Stop process</button>`;
     const actions = type === "finding"
-      ? `<button class="mini-button" data-action="quarantine.isolate" data-item-id="${id}" data-confirm="Move this detected file into GuardSnitch quarantine?">Isolate</button>`
+      ? `${stop}<button class="mini-button" data-action="quarantine.isolate" data-item-id="${id}" data-confirm="Move this detected file into GuardSnitch quarantine?">Quarantine</button>`
       : item.status === "quarantined"
-        ? `<button class="mini-button" data-action="quarantine.restore" data-item-id="${id}" data-confirm="Restore this file? It was detected and may still be unsafe.">Restore</button><button class="mini-button danger" data-action="quarantine.delete" data-item-id="${id}" data-confirm="Permanently delete this quarantined file? This cannot be undone.">Delete</button>`
+        ? `${stop}<button class="mini-button" data-action="quarantine.restore" data-item-id="${id}" data-confirm="Restore this file? It was detected and may still be unsafe.">Restore</button><button class="mini-button danger" data-action="quarantine.delete" data-item-id="${id}" data-confirm="Permanently delete this quarantined file? This cannot be undone.">Delete</button>`
         : "";
     return `<div class="data-row"><div class="data-main"><strong title="${path}">${title}</strong><small>${path}</small></div><div class="data-actions">${actions}</div></div>`;
   }).join("");
@@ -305,7 +306,7 @@ async function postAction(button, extra = {}) {
   }
   if (action.startsWith("theft.safe-zones.")) payload.ssid = byId("safe-zone-ssid").value.trim();
   if (action === "vpn.connect") payload.country = byId("vpn-country").value || null;
-  if (action.startsWith("quarantine.")) payload.item_id = button.dataset.itemId;
+  if (action.startsWith("quarantine.") || action === "malware.stop-process") payload.item_id = button.dataset.itemId;
   if (action === "shield.allow") payload.process_name = byId("process-name").value.trim();
   if (action === "shield.block-ip") payload.ip = byId("block-ip").value.trim();
   if (action === "ip.rotate") payload.dry_run = button.dataset.dryRun === "true";

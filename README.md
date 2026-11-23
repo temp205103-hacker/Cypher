@@ -169,6 +169,9 @@ should be kept current. The included YARA rules are examples, not a complete ant
 GuardSnitch.ai malware status
 GuardSnitch.ai malware scan
 GuardSnitch.ai malware scan "C:\Users\you\Downloads"
+GuardSnitch.ai malware scan-machine
+GuardSnitch.ai malware scan-machine --yes
+GuardSnitch.ai malware stop <finding-id>
 GuardSnitch.ai malware monitor start
 GuardSnitch.ai malware monitor status
 GuardSnitch.ai malware findings
@@ -183,6 +186,13 @@ Manual scans run when requested. The optional monitor scans completed files in y
 folder and queues findings; it does not remove files automatically. Isolating, restoring, or
 permanently deleting a file requires confirmation. Files are scanned locally and are not uploaded
 by GuardSnitch.ai.
+
+The whole-machine scan checks mounted local fixed/removable drives (not network shares), can take a
+long time, and may be partial when files are inaccessible. It requires ClamAV or YARA. After
+confirmation, ClamAV detections are moved to quarantine; heuristic YARA findings remain queued for
+review. You can permanently delete quarantined files from the dashboard or with `quarantine delete`.
+`malware stop <finding-id>` can stop a running process only when its executable path exactly matches
+a finding. GuardSnitch.ai does not execute detected files; do not run suspected malware.
 
 ### Live reverse-shell shield
 

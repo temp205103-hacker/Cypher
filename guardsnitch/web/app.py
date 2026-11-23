@@ -25,6 +25,7 @@ from rich.console import Console
 
 from guardsnitch.config import GuardConfig
 from guardsnitch.core import malware as malware_core
+from guardsnitch.core import machine_scan
 from guardsnitch.core import quarantine as quarantine_core
 from guardsnitch.core import scanner as source_scanner
 from guardsnitch.core import safe_run as safe_run_core
@@ -368,6 +369,18 @@ def _perform_action(payload: ActionRequest) -> Any:
         scan_result = malware_core.scan_file(target)
         queued = quarantine_core.queue_findings(scan_result)
         return {"scan": scan_result, "queued": queued}
+    if action == "malware.scan-machine":
+        _require_confirmation(
+            payload,
+            "Confirm scanning all mounted local drives and moving ClamAV malware detections to quarantine. This may take a long time and use significant system resources.",
+        )
+        return machine_scan.scan_machine()
+    if action == "malware.stop-process":
+        _require_confirmation(
+            payload,
+            "Stop every running process whose executable exactly matches this finding? A false positive may close a legitimate program.",
+        )
+        return quarantine_core.stop_detected_process(_required(payload.item_id, "Finding ID"))
     if action == "malware.monitor.start":
         status = malware_core.start_monitor()
         if not status.get("running"):

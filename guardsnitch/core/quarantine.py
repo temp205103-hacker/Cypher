@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 from guardsnitch.config import appdata_dir
 
@@ -181,3 +184,87 @@ def delete_quarantined(item_id: str) -> dict[str, Any]:
     item["quarantine_path"] = None
     _save_items(items)
     return item
+
+
+def stop_detected_process(item_id: str) -> dict[str, Any]:
+    items = _load_items()
+    item = next((entry for entry in items if entry.get("id") == item_id), None)
+    if item is None or item.get("status") not in {"pending", "quarantined"}:
+        raise ValueError(f"No active finding exists with ID {item_id}.")
+
+    stored_path = item.get("quarantine_path") if item.get("status") == "quarantined" else item["path"]
+    if stored_path:
+        artifact = Path(str(stored_path))
+        if artifact.is_symlink():
+            raise RuntimeError(f"Refusing to trust a symbolic link for this finding: {artifact}")
+        if artifact.exists():
+            try:
+                current_stat = artifact.stat()
+            except OSError as exc:
+                raise RuntimeError(f"Could not validate detected file {artifact}: {exc}") from exc
+            if (
+                current_stat.st_size != item.get("file_size")
+                or current_stat.st_mtime_ns != item.get("file_mtime_ns")
+            ):
+                raise RuntimeError(f"File changed after scanning; rescan it before stopping its process: {artifact}")
+
+    expected_path = os.path.normcase(str(Path(str(item["path"])).resolve()))
+    matches: list[psutil.Process] = []
+    inaccessible: list[int] = []
+    try:
+        processes = psutil.process_iter(["pid", "exe"])
+        for process in processes:
+            try:
+                executable = process.info.get("exe") or process.exe()
+            except psutil.NoSuchProcess:
+                continue
+            except psutil.AccessDenied:
+                inaccessible.append(process.pid)
+                continue
+            if executable and os.path.normcase(str(Path(executable).resolve())) == expected_path:
+                matches.append(process)
+    except psutil.Error as exc:
+        raise RuntimeError(f"Could not inspect running processes: {exc}") from exc
+
+    if not matches:
+        if inaccessible:
+            raise RuntimeError(
+                "No accessible process matched this finding. Run elevated if the process "
+                "belongs to another user or service."
+            )
+        raise ValueError("No running process matches this detected file.")
+
+    stopped: list[int] = []
+    for process in matches:
+        try:
+            executable = process.exe()
+            if os.path.normcase(str(Path(executable).resolve())) != expected_path:
+                continue
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except psutil.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+            stopped.append(process.pid)
+        except psutil.NoSuchProcess:
+            continue
+        except psutil.AccessDenied as exc:
+            message = f"Could not stop process {process.pid}; administrator rights may be required."
+            if stopped:
+                message = f"Stopped PID(s) {', '.join(map(str, stopped))}; {message}"
+            raise RuntimeError(message) from exc
+        except psutil.TimeoutExpired as exc:
+            message = f"Process {process.pid} did not stop in time."
+            if stopped:
+                message = f"Stopped PID(s) {', '.join(map(str, stopped))}; {message}"
+            raise RuntimeError(message) from exc
+        except psutil.Error as exc:
+            message = f"Could not stop process {process.pid}: {exc}"
+            if stopped:
+                message = f"Stopped PID(s) {', '.join(map(str, stopped))}; {message}"
+            raise RuntimeError(message) from exc
+
+    if not stopped:
+        raise ValueError("No running process still matched this detected file.")
+    return {"stopped": stopped, "path": str(item["path"])}

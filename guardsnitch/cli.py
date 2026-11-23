@@ -25,6 +25,7 @@ from guardsnitch.vpn.providers.mock import MockProvider
 from guardsnitch.ip.rotate import IpRotationError, rotate as rotate_public_ip
 from guardsnitch.ip.leaktest import LeakTestError, run_leak_test
 from guardsnitch.core import malware as malware_core
+from guardsnitch.core import machine_scan
 from guardsnitch.core import quarantine as quarantine_core
 from guardsnitch.core import scanner as source_scanner
 from guardsnitch.core import safe_run as safe_run_core
@@ -521,6 +522,51 @@ def malware_scan(path: Optional[str] = typer.Argument(None, help="File or direct
         console.print(f"[yellow]Scanner warning:[/] {warning}")
 
 
+@malware_app.command("scan-machine")
+def malware_scan_machine(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm scanning all mounted local drives."),
+) -> None:
+    """Scan all mounted local drives using installed ClamAV or YARA."""
+    if not yes and not typer.confirm(
+        "Scan all mounted local drives and quarantine ClamAV malware detections? "
+        "This can take a long time and use significant system resources.",
+        default=False,
+    ):
+        console.print("Whole-machine scan cancelled.")
+        return
+
+    try:
+        result = machine_scan.scan_machine(
+            on_volume=lambda volume: console.print(f"Scanning {volume}…")
+        )
+    except (machine_scan.MachineScanError, malware_core.MalwareScanError, OSError, RuntimeError) as exc:
+        console.print(f"[red]Whole-machine scan failed:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    console.print(
+        f"Machine scan: {result['status'].upper()} · "
+        f"{result['volumes_scanned']} volume(s) scanned · "
+        f"{result['volumes_failed']} failed · "
+        f"{result['total_findings']} finding(s) · "
+        f"{result['total_quarantined']} quarantined"
+    )
+    for volume in result["volumes"]:
+        console.print(
+            f"{volume['volume']}: {volume['status']} · {volume['findings']} finding(s)"
+        )
+        for finding_id in volume.get("finding_ids", []):
+            console.print(f"  Review finding ID: {finding_id}")
+        for finding_id in volume.get("quarantined_ids", []):
+            console.print(f"  Quarantine ID: {finding_id}")
+        for warning in volume.get("warnings", []):
+            console.print(f"[yellow]  Scanner warning:[/] {warning}")
+    for error in result["errors"]:
+        console.print(f"[red]{error['volume']}: {error['error']}[/]")
+    console.print(result["note"])
+    if result["status"] != "complete":
+        raise typer.Exit(code=1)
+
+
 @malware_app.command("findings")
 def malware_findings() -> None:
     try:
@@ -535,6 +581,30 @@ def malware_findings() -> None:
         console.print(
             f"{item['id']}  {item['classification']}  {item['signature']}  {item['path']}"
         )
+
+
+@malware_app.command("stop")
+def malware_stop_process(
+    finding_id: str = typer.Argument(..., help="Finding ID for the running executable."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Confirm stopping matching processes."),
+) -> None:
+    """Stop running processes whose executable exactly matches a finding."""
+    try:
+        candidates = quarantine_core.list_findings() + quarantine_core.list_quarantine()
+        item = next((entry for entry in candidates if entry.get("id") == finding_id), None)
+        if item is None:
+            raise ValueError(f"No active finding exists with ID {finding_id}.")
+        if not yes and not typer.confirm(
+            f"Stop running processes for {item['path']}? This may close a legitimate program if the finding is a false positive.",
+            default=False,
+        ):
+            console.print("No process was stopped.")
+            return
+        result = quarantine_core.stop_detected_process(finding_id)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"Stopped process ID(s): {', '.join(map(str, result['stopped']))}")
 
 
 monitor_app = typer.Typer(help="Background scan of completed files in Downloads.")
