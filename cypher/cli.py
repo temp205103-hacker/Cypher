@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
 from threading import Timer
 from typing import Optional
 from urllib.error import URLError
@@ -34,6 +35,11 @@ from cypher.core import safe_zones
 from cypher.core import scheduling
 from cypher.core import git_hook
 from cypher.core import updater
+from cypher.phish import analyze_url as analyze_phish_url
+from cypher.phish import reputation as phish_reputation
+from cypher.phish import scan as phish_scan_core
+from cypher.phish import watcher as phish_watcher
+from cypher.phish import incident as phish_incident_core
 from cypher.core.ai import answer_question, explain_risk
 from cypher.core.redact import redact_text
 from cypher.ip import history as ip_history_store
@@ -251,7 +257,9 @@ def root(
         console.print("[red]Use --country together with --vpn.[/]")
         raise typer.Exit(code=2)
 
-    if ctx.invoked_subcommand in {"vpn", "shield", "setup", "fscan"} or ctx.resilient_parsing:
+    if ctx.invoked_subcommand in {
+        "vpn", "shield", "setup", "fscan", "phish"
+    } or ctx.resilient_parsing:
         return
 
     if online and ctx.invoked_subcommand is None:
@@ -908,6 +916,439 @@ def safe_run(url: str = typer.Argument(..., help="Public HTTP(S) URL to check lo
         console.print(f"[red]{exc}[/]")
         raise typer.Exit(code=1) from exc
     console.print_json(json.dumps(result))
+
+
+phish_app = typer.Typer(
+    help=(
+        "Local-first phishing checks. Examples:\n"
+        "  Cypher phish check https://example.com\n"
+        "  Cypher phish check https://paypal-login.invalid --format json --offline"
+    ),
+    context_settings={"help_option_names": ["-h", "--help"]},
+    no_args_is_help=True,
+)
+app.add_typer(phish_app, name="phish")
+
+
+@phish_app.command("check")
+def phish_check(
+    url: str = typer.Argument(..., help="URL or hostname to analyze without opening it."),
+    output_format: str = typer.Option(
+        "text",
+        "--format",
+        help="Output format: text, json, md, or html.",
+    ),
+    quiet: bool = typer.Option(False, "--quiet", help="Print only the verdict and score."),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Show analysis source and independent signal groups."
+    ),
+    offline: bool = typer.Option(
+        False,
+        "--offline",
+        help="Explicitly request local-only analysis (the default behavior).",
+    ),
+) -> None:
+    """Check one link locally. No DNS lookup, page load, or URL upload is performed."""
+    normalized_format = output_format.casefold()
+    if normalized_format not in {"text", "json", "md", "html"}:
+        console.print("[red]Format must be text, json, md, or html.[/]")
+        raise typer.Exit(code=2)
+    try:
+        result = analyze_phish_url(url)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]Could not analyze URL:[/] {exc}")
+        raise typer.Exit(code=2) from exc
+    result["mode"] = "offline" if offline else "local-only"
+    try:
+        phish_reputation.record_check(result)
+        result["history_saved"] = True
+    except (OSError, RuntimeError) as exc:
+        result["history_saved"] = False
+        console.print(f"[yellow]Local history could not be saved:[/] {exc}")
+
+    if normalized_format == "json":
+        console.print_json(json.dumps(result, ensure_ascii=False))
+        return
+    if normalized_format == "md":
+        console.print(f"# Phishing check: {result['verdict']}")
+        console.print(f"- Risk score: {result['risk_score']}/100")
+        console.print(f"- Confidence: {result['confidence']}")
+        console.print(f"- Host: `{_markdown_escape(str(result['host']))}`")
+        for item in result["evidence"]:
+            console.print(f"- {item['evidence']}")
+        console.print(f"\n{result['explanation']}")
+        return
+    if normalized_format == "html":
+        rows = "".join(
+            "<li>" + _html_escape(str(item["evidence"])) + "</li>"
+            for item in result["evidence"]
+        )
+        console.print(
+            "<!doctype html><meta charset=\"utf-8\"><title>Cypher phishing check</title>"
+            f"<h1>{_html_escape(str(result['verdict']))}</h1>"
+            f"<p>Risk: {result['risk_score']}/100; confidence: "
+            f"{_html_escape(str(result['confidence']))}</p><ul>{rows}</ul>"
+            f"<p>{_html_escape(str(result['explanation']))}</p>",
+            markup=False,
+        )
+        return
+
+    if quiet:
+        console.print(
+            f"{result['verdict']} {result['risk_score']}/100",
+            markup=False,
+        )
+        return
+    console.print(
+        f"[bold]Verdict:[/] {result['verdict']}  "
+        f"[bold]Risk:[/] {result['risk_score']}/100  "
+        f"[bold]Confidence:[/] {result['confidence']}"
+    )
+    console.print(f"Host: {result['host'] or '(none)'}", markup=False)
+    for item in result["evidence"]:
+        console.print(f"  - {item['evidence']}", markup=False)
+    if verbose:
+        console.print(
+            f"Groups: {', '.join(result['groups']) or '(none)'}; "
+            f"source: {result['source']}; network contacted: no",
+            markup=False,
+        )
+    console.print(f"Explanation: {result['explanation']}", markup=False)
+    console.print(
+        "[dim]Local URL-only analysis; a Safe result is not proof that a site is safe.[/]"
+    )
+
+
+def _render_phish_scan(
+    report: dict[str, object], output_format: str, quiet: bool, verbose: bool
+) -> None:
+    findings = report["findings"]
+    if output_format == "json":
+        console.print_json(json.dumps(report, ensure_ascii=False))
+        return
+    if output_format == "md":
+        console.print("# Cypher phishing scan")
+        console.print(
+            f"- Files scanned: {report['files_scanned']}\n"
+            f"- Links found: {report['links_found']}"
+        )
+        for item in findings:
+            console.print(
+                f"- **{item['verdict']} {item['risk_score']}/100** "
+                f"`{_markdown_escape(str(item['host']))}` — {item['explanation']}"
+            )
+        for warning in report["warnings"]:
+            console.print(f"- Warning: {warning}")
+        return
+    if output_format == "html":
+        rows = "".join(
+            "<tr>"
+            f"<td>{_html_escape(str(item['source']))}</td>"
+            f"<td>{_html_escape(str(item['host']))}</td>"
+            f"<td>{_html_escape(str(item['verdict']))}</td>"
+            f"<td>{item['risk_score']}</td>"
+            "</tr>"
+            for item in findings
+        )
+        console.print(
+            "<!doctype html><meta charset=\"utf-8\"><title>Cypher phishing scan</title>"
+            "<table><thead><tr><th>Source</th><th>Host</th><th>Verdict</th><th>Risk</th>"
+            f"</tr></thead><tbody>{rows}</tbody></table>",
+            markup=False,
+        )
+        return
+    if not quiet:
+        console.print(
+            f"Scanned {report['files_scanned']} file(s); "
+            f"found {report['links_found']} link(s)."
+        )
+    for item in findings:
+        console.print(
+            f"{item['verdict']} {item['risk_score']}/100 {item['host']} "
+            f"({item['source']})",
+            markup=False,
+        )
+        if verbose:
+            for evidence in item["evidence"]:
+                console.print(f"  - {evidence['evidence']}", markup=False)
+    for evidence in report["message_evidence"]:
+        console.print(f"Email: {evidence}", markup=False)
+    for warning in report["warnings"]:
+        console.print(f"Warning: {warning}", markup=False)
+
+
+@phish_app.command("scan")
+def phish_scan(
+    target: str = typer.Argument(
+        ...,
+        help="File, folder, or '-' for pasted text from stdin.",
+        show_default=False,
+    ),
+    output_format: str = typer.Option(
+        "text", "--format", help="Output format: text, json, md, or html."
+    ),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress the scan summary."),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Include evidence details for every discovered link."
+    ),
+    offline: bool = typer.Option(
+        False, "--offline", help="Use local-only URL analysis (the default behavior)."
+    ),
+) -> None:
+    """Extract and check links from local files, folders, emails, or stdin."""
+    normalized_format = output_format.casefold()
+    if normalized_format not in {"text", "json", "md", "html"}:
+        console.print("[red]Format must be text, json, md, or html.[/]")
+        raise typer.Exit(code=2)
+    try:
+        if target == "-":
+            text = sys.stdin.read(phish_scan_core.MAX_FILE_BYTES + 1)
+            report = phish_scan_core.scan_text(text)
+            if len(text) > phish_scan_core.MAX_FILE_BYTES:
+                report["warnings"].append(
+                    f"Stdin was truncated to {phish_scan_core.MAX_FILE_BYTES} bytes."
+                )
+        else:
+            report = phish_scan_core.scan_path(target)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]Could not scan input:[/] {exc}")
+        raise typer.Exit(code=2) from exc
+    if offline:
+        report["mode"] = "offline"
+    else:
+        report["mode"] = "local-only"
+    history_errors = []
+    for finding in report["findings"]:
+        try:
+            phish_reputation.record_check(finding)
+        except (OSError, RuntimeError) as exc:
+            history_errors.append(str(exc))
+            break
+    if history_errors:
+        report["warnings"].append(f"Local history could not be saved: {history_errors[0]}")
+    _render_phish_scan(report, normalized_format, quiet, verbose)
+
+
+@phish_app.command("allow")
+def phish_allow(domain: str = typer.Argument(..., help="Domain to trust on this device.")) -> None:
+    """Add a domain to the local allowlist."""
+    try:
+        saved = phish_reputation.set_domain_decision(domain, "allow")
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=2) from exc
+    console.print(f"[green]Allowed locally:[/] {saved}", markup=False)
+
+
+@phish_app.command("block")
+def phish_block(domain: str = typer.Argument(..., help="Domain to block in Cypher's local checks.")) -> None:
+    """Add a domain to the local blocklist; this does not change Windows networking."""
+    try:
+        saved = phish_reputation.set_domain_decision(domain, "block")
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=2) from exc
+    console.print(f"[yellow]Blocked in local checks:[/] {saved}", markup=False)
+
+
+@phish_app.command("report")
+def phish_report(
+    domain: str = typer.Argument(..., help="Domain to report."),
+    outcome: str = typer.Option(
+        ...,
+        "--as",
+        help="Feedback label: false-positive or phishing.",
+    ),
+) -> None:
+    """Update local reputation after reviewing a finding."""
+    decision = {
+        "false-positive": "allow",
+        "phishing": "block",
+    }.get(outcome.casefold())
+    if decision is None:
+        console.print("[red]Use --as false-positive or --as phishing.[/]")
+        raise typer.Exit(code=2)
+    try:
+        saved = phish_reputation.set_domain_decision(domain, decision)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=2) from exc
+    console.print(f"[green]Feedback saved locally for:[/] {saved}", markup=False)
+
+
+@phish_app.command("history")
+def phish_history(
+    clear: bool = typer.Option(False, "--clear", help="Delete local phishing check history."),
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
+    """Show or clear the bounded local URL-check history."""
+    if output_format not in {"text", "json"}:
+        console.print("[red]History format must be text or json.[/]")
+        raise typer.Exit(code=2)
+    try:
+        if clear:
+            phish_reputation.clear_history()
+            console.print("Local phishing history cleared.")
+            return
+        entries = phish_reputation.history()
+    except (OSError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    if output_format == "json":
+        console.print_json(json.dumps(entries, ensure_ascii=False))
+        return
+    if not entries:
+        console.print("No local phishing checks recorded.")
+        return
+    for entry in entries:
+        console.print(
+            f"{entry['timestamp']} {entry['verdict']} {entry['risk_score']}/100 "
+            f"{entry['domain']}",
+            markup=False,
+        )
+
+
+@phish_app.command("test")
+def phish_test() -> None:
+    """Run a safe local simulation using a reserved .invalid demo domain."""
+    result = analyze_phish_url("https://phishing-demo.invalid/login")
+    incident = phish_incident_core.create_incident(
+        domain=str(result["host"]),
+        verdict=str(result["verdict"]),
+        risk_score=int(result["risk_score"]),
+        evidence=[str(item["evidence"]) for item in result["evidence"]],
+        trigger="safe-simulation",
+        simulation=True,
+    )
+    console.print(
+        f"Safe simulation: {result['verdict']} ({result['risk_score']}/100); "
+        f"incident {incident['id']} recorded locally; "
+        "no network request, VPN change, or browser action was performed.",
+        markup=False,
+    )
+
+
+@phish_app.command("incident")
+def phish_incident(
+    incident_id: str = typer.Argument(..., help="Local incident ID."),
+    run_response: bool = typer.Option(
+        False,
+        "--run-response",
+        help="Record and show the manual account/file protection checklist.",
+    ),
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
+    """View a local incident report; optional response only shows manual next steps."""
+    if output_format not in {"text", "json"}:
+        console.print("[red]Incident format must be text or json.[/]")
+        raise typer.Exit(code=2)
+    try:
+        report = (
+            phish_incident_core.run_manual_response(incident_id)
+            if run_response
+            else phish_incident_core.get_incident(incident_id)
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=2) from exc
+    if output_format == "json":
+        console.print_json(json.dumps(report, ensure_ascii=False))
+        return
+    console.print(
+        f"Incident {report['id']} · {report['verdict']} · "
+        f"{report['risk_score']}/100 · {report['domain']}",
+        markup=False,
+    )
+    console.print(f"Trigger: {report['trigger']}", markup=False)
+    for evidence in report["evidence"]:
+        console.print(f"Evidence: {evidence}", markup=False)
+    console.print(
+        "Network changed: no. No firewall, DNS, VPN, or account action was performed.",
+        markup=False,
+    )
+    console.print("Manual next steps:")
+    for item in report["actions_pending"]:
+        console.print(f"  - {item}", markup=False)
+
+
+phish_watch_app = typer.Typer(
+    help="Control local browser-extension click checks.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    no_args_is_help=True,
+)
+phish_app.add_typer(phish_watch_app, name="watch")
+
+
+@phish_watch_app.command("on")
+def phish_watch_on() -> None:
+    """Enable local checks for ordinary clicks in the connected browser extension."""
+    try:
+        state = phish_watcher.set_enabled(True)
+    except (OSError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print("[green]Local browser click checks enabled.[/]")
+    console.print(state["note"], markup=False)
+
+
+@phish_watch_app.command("off")
+def phish_watch_off() -> None:
+    """Disable local heuristic checks for browser clicks."""
+    try:
+        state = phish_watcher.set_enabled(False)
+    except (OSError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print("[yellow]Local browser click checks disabled.[/]")
+    console.print(state["note"], markup=False)
+
+
+@phish_watch_app.command("status")
+def phish_watch_status() -> None:
+    """Show the actual phishing watcher coverage on this device."""
+    try:
+        state = phish_watcher.status()
+    except (OSError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+    console.print(f"Extension click checks: {'on' if state['enabled'] else 'off'}")
+    console.print("Clipboard watcher: not implemented")
+    console.print("DNS/connection watcher: not implemented")
+    console.print(state["note"], markup=False)
+
+
+phish_extension_app = typer.Typer(
+    help="Install the bundled Chrome/Edge extension.",
+    context_settings={"help_option_names": ["-h", "--help"]},
+    no_args_is_help=True,
+)
+phish_app.add_typer(phish_extension_app, name="extension")
+
+
+@phish_extension_app.command("install")
+def phish_extension_install() -> None:
+    """Show guided Chrome/Edge load-unpacked steps for the bundled extension."""
+    extension_path = (
+        Path(__file__).resolve().parents[1]
+        / "browser-extension"
+        / "phishing-guard"
+    )
+    if not extension_path.is_dir():
+        console.print(
+            "[red]The bundled browser-extension folder is not present in this installation.[/]"
+        )
+        raise typer.Exit(code=1)
+    console.print("Install Cypher Phishing Guard:")
+    console.print("  1. Open chrome://extensions or edge://extensions.")
+    console.print("  2. Turn on Developer mode.")
+    console.print("  3. Select Load unpacked and choose this folder:")
+    console.print(f"     {extension_path}", markup=False)
+    console.print("  4. In the extension popup, paste the token shown in Cypher > Browser guard.")
+    console.print("  5. Use phish watch on, then save the local connection in the popup.")
+
+
+def _markdown_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("`", "\\`").replace("|", "\\|")
 
 
 ip_app = typer.Typer(help="Public-IP shield and leak checks.")

@@ -11,6 +11,15 @@
     <h1>Phishing Guard</h1>
     <p id="status" role="status">Checking protection status...</p>
     <button id="refresh" type="button">Update phishing list</button>
+    <section class="local-connection">
+      <h2>Connect to Cypher</h2>
+      <label for="dashboard-port">Dashboard port</label>
+      <input id="dashboard-port" type="number" min="1" max="65535" value="8787">
+      <label for="api-token">Local connection token</label>
+      <input id="api-token" type="password" autocomplete="off" placeholder="Paste token from Cypher dashboard">
+      <button id="save-local" type="button">Save local connection</button>
+      <p id="local-status" role="status">Local domain blocking is not connected.</p>
+    </section>
     <p class="note">Known phishing URLs are blocked before the browser contacts them, including address-bar navigation. Checks use a locally cached OpenPhish feed; it is not exhaustive.</p>
   </main>
   <script src="url-utils.js"></script>

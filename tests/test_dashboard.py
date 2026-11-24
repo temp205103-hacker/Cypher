@@ -1,8 +1,11 @@
 import base64
 import hashlib
+import asyncio
 from io import StringIO
 
 from fastapi import HTTPException
+from starlette.requests import Request
+from starlette.responses import Response
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -26,7 +29,122 @@ def test_online_flag_launches_dashboard_without_interactive_setup(monkeypatch) -
 
 def test_health_endpoint_exposes_dashboard_api_version() -> None:
     assert dashboard.health()["name"] == "Cypher"
-    assert dashboard.health()["api_version"] >= 2
+    assert dashboard.health()["api_version"] >= 3
+
+
+def test_phish_dashboard_api_checks_and_saves_local_feedback(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    result = dashboard.phish_check(
+        dashboard.PhishCheckRequest(url="https://paypa1-login.invalid/verify")
+    )
+    assert result["verdict"] == "Suspicious"
+    assert result["network_contacted"] is False
+
+    saved = dashboard.phish_feedback(
+        dashboard.PhishFeedbackRequest(
+            domain="paypa1-login.invalid",
+            outcome="false-positive",
+        )
+    )
+    assert saved["outcome"] == "false-positive"
+    assert dashboard.phish_history()[-1]["domain"] == "paypa1-login.invalid"
+
+
+def test_extension_bridge_requires_the_local_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    token = dashboard.phish_extension_token()["token"]
+
+    def request_with_token(supplied_token: str) -> Request:
+        headers = [
+            (b"host", b"127.0.0.1:8787"),
+            (b"origin", b"chrome-extension://test-extension"),
+            (b"x-cypher-token", supplied_token.encode("utf-8")),
+        ]
+        return Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/api/phish/blocked-domains",
+                "headers": headers,
+                "query_string": b"",
+                "scheme": "http",
+                "server": ("127.0.0.1", 8787),
+                "client": ("127.0.0.1", 12345),
+                "http_version": "1.1",
+            }
+        )
+
+    async def call_next(_request: Request) -> Response:
+        return Response("ok")
+
+    denied = asyncio.run(
+        dashboard.restrict_to_local_browser(request_with_token("incorrect-token"), call_next)
+    )
+    allowed = asyncio.run(
+        dashboard.restrict_to_local_browser(request_with_token(token), call_next)
+    )
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+
+
+def test_extension_incident_submission_requires_token(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    token = dashboard.phish_extension_token()["token"]
+
+    def request_with_token(supplied_token: str) -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/phish/incident",
+                "headers": [
+                    (b"host", b"127.0.0.1:8787"),
+                    (b"origin", b"chrome-extension://test-extension"),
+                    (b"x-cypher-token", supplied_token.encode("utf-8")),
+                ],
+                "query_string": b"",
+                "scheme": "http",
+                "server": ("127.0.0.1", 8787),
+                "client": ("127.0.0.1", 12345),
+                "http_version": "1.1",
+            }
+        )
+
+    async def call_next(_request: Request) -> Response:
+        return Response("ok")
+
+    denied = asyncio.run(
+        dashboard.restrict_to_local_browser(
+            request_with_token("incorrect-token"), call_next
+        )
+    )
+    allowed = asyncio.run(
+        dashboard.restrict_to_local_browser(request_with_token(token), call_next)
+    )
+
+    assert denied.status_code == 403
+    assert allowed.status_code == 200
+
+
+def test_dashboard_can_record_and_open_manual_incident_response(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+
+    report = dashboard.phish_create_incident(
+        dashboard.PhishIncidentRequest(
+            domain="example.invalid",
+            verdict="Suspicious",
+            risk_score=45,
+            evidence=[{"evidence": "User reported a click."}],
+            trigger="user-panic-button",
+        )
+    )
+    response = dashboard.phish_run_manual_response(report["id"])
+
+    assert response["response_started"] is True
+    assert response["network_changed"] is False
+    assert dashboard.phish_incidents()[0]["id"] == report["id"]
 
 
 def test_cli_detects_outdated_dashboard_process(monkeypatch) -> None:

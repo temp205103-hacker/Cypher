@@ -7,6 +7,7 @@ const viewTitles = {
   network: "Network & VPN",
   theft: "Theft protection",
   browser: "Browser guard",
+  phish: "Phishing Guard",
   reports: "Action reports",
   settings: "Setup & settings",
 };
@@ -14,6 +15,7 @@ const viewTitles = {
 const byId = (id) => document.getElementById(id);
 let dashboardState = null;
 let refreshTimer = null;
+let lastPhishUrl = "";
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -201,6 +203,278 @@ function renderReports(reports, targetId) {
     const summary = report.error ? `Error: ${report.error}` : pretty(report.result);
     return `<article class="report-item"><div class="report-header"><strong>${escapeHtml(report.action)}</strong><span class="report-status ${status}">${status === "completed" ? "Completed" : "Failed"}</span><time class="report-time">${escapeHtml(new Date(report.completed_at).toLocaleString())}</time></div><pre class="report-result">${escapeHtml(summary)}</pre></article>`;
   }).join("");
+}
+
+function renderPhishResult(data) {
+  const score = Math.max(0, Math.min(100, Number(data.risk_score) || 0));
+  const verdictClass = String(data.verdict || "unknown").toLowerCase();
+  const evidence = Array.isArray(data.evidence) ? data.evidence : [];
+  byId("phish-result").innerHTML = `
+    <div class="phish-verdict ${escapeHtml(verdictClass)}">
+      <div class="phish-result-top"><strong>${escapeHtml(data.verdict)}</strong>
+        <span>${score}/100 · ${escapeHtml(data.confidence)} confidence</span></div>
+      <div class="risk-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${score}">
+        <span style="width:${score}%"></span>
+      </div>
+      <p class="phish-host">${escapeHtml(data.host || "(no hostname)")}</p>
+      <p>${escapeHtml(data.explanation || "")}</p>
+      <ul class="phish-evidence">${evidence.length
+        ? evidence.map((item) => `<li>${escapeHtml(item.evidence)}</li>`).join("")
+        : "<li>No URL indicators matched. This is not a safety guarantee.</li>"}
+      </ul>
+      ${data.host ? `<div class="button-row">
+        <button class="button button-quiet" data-phish-feedback="false-positive">False positive / Always allow</button>
+        <button class="button button-secondary" data-phish-feedback="phishing">Report phishing / Block locally</button>
+      </div>` : ""}
+    </div>`;
+  byId("phish-domain").value = data.host || "";
+}
+
+async function checkPhishUrl(event) {
+  event.preventDefault();
+  const url = byId("phish-url").value.trim();
+  if (!url) return;
+  lastPhishUrl = url;
+  const button = byId("phish-check-form").querySelector('button[type="submit"]');
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "Checking locally…";
+  try {
+    const response = await fetch("/api/phish/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `URL check failed (${response.status}).`);
+    renderPhishResult(data);
+    await loadPhishHistory();
+  } catch (error) {
+    toast(error.message || "Could not check this link.", true);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
+async function sendPhishFeedback(outcome) {
+  if (!["false-positive", "phishing"].includes(outcome)) {
+    toast("Unknown phishing feedback action.", true);
+    return;
+  }
+  const domain = byId("phish-domain").value.trim();
+  if (!domain) {
+    toast("Enter a domain to update your local list.", true);
+    return;
+  }
+  try {
+    const response = await fetch("/api/phish/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ domain, outcome }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Feedback failed (${response.status}).`);
+    toast(`Saved ${data.outcome} feedback for ${data.domain}.`);
+    if (lastPhishUrl) {
+      const result = await fetch("/api/phish/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ url: lastPhishUrl }),
+      });
+      if (result.ok) renderPhishResult(await result.json());
+    }
+    await loadPhishHistory();
+  } catch (error) {
+    toast(error.message || "Could not save phishing feedback.", true);
+  }
+}
+
+async function loadPhishHistory() {
+  const target = byId("phish-history");
+  if (!target) return;
+  try {
+    const response = await fetch("/api/phish/history", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`History request failed (${response.status}).`);
+    const entries = await response.json();
+    if (!entries.length) {
+      target.innerHTML = '<div class="empty-state">No phishing checks recorded on this device.</div>';
+      return;
+    }
+    target.innerHTML = entries.slice(-10).reverse().map((entry) => `
+      <div class="data-row"><div><strong>${escapeHtml(entry.domain || "(no hostname)")}</strong>
+        <small>${escapeHtml(new Date(entry.timestamp).toLocaleString())}</small></div>
+        <span class="status-pill ${escapeHtml(String(entry.verdict).toLowerCase())}">
+          ${escapeHtml(entry.verdict)} · ${Number(entry.risk_score)}/100</span></div>
+    `).join("");
+  } catch (error) {
+    target.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "History unavailable.")}</div>`;
+  }
+}
+
+async function loadPhishIncidents() {
+  const target = byId("phish-incidents");
+  if (!target) return;
+  try {
+    const response = await fetch("/api/phish/incidents", {
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) throw new Error(`Incident request failed (${response.status}).`);
+    const incidents = await response.json();
+    if (!incidents.length) {
+      target.innerHTML = '<div class="empty-state">No phishing incidents recorded on this device.</div>';
+      return;
+    }
+    target.innerHTML = incidents.slice(0, 20).map((incident) => `
+      <div class="data-row">
+        <div><strong>${escapeHtml(incident.domain || "(unknown domain)")}</strong>
+          <small>${escapeHtml(new Date(incident.created_at).toLocaleString())} · ${escapeHtml(incident.trigger || "local")}</small></div>
+        <div class="incident-actions">
+          <span class="status-pill ${escapeHtml(String(incident.verdict).toLowerCase())}">
+            ${escapeHtml(incident.verdict)} · ${Number(incident.risk_score)}/100</span>
+          ${incident.simulation
+            ? '<span class="micro-copy">Simulation</span>'
+            : `<button class="button button-quiet" type="button" data-phish-response="${escapeHtml(incident.id)}">Run response checklist</button>`}
+        </div>
+      </div>
+    `).join("");
+  } catch (error) {
+    target.innerHTML = `<div class="empty-state">${escapeHtml(error.message || "Incidents unavailable.")}</div>`;
+  }
+}
+
+async function runPhishIncidentResponse(incidentId) {
+  try {
+    const response = await fetch(
+      `/api/phish/incidents/${encodeURIComponent(incidentId)}/response`,
+      { method: "POST", headers: { Accept: "application/json" } }
+    );
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Response request failed (${response.status}).`);
+    const target = byId("phish-incident-checklist");
+    target.innerHTML = `<h3>Manual next steps for ${escapeHtml(data.domain)}</h3><ul>${
+      data.actions_pending.map((item) => `<li>${escapeHtml(item)}</li>`).join("")
+    }</ul>`;
+    target.hidden = false;
+    toast("Checklist opened. No network, VPN, or account action was performed.");
+    await loadPhishIncidents();
+  } catch (error) {
+    toast(error.message || "Could not open the incident checklist.", true);
+  }
+}
+
+async function reportClickedPhishLink() {
+  const input = window.prompt(
+    "Enter the URL or domain you clicked. Cypher will save only its hostname."
+  );
+  if (!input) return;
+  let domain;
+  try {
+    const candidate = input.trim();
+    const parsed = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error("Enter an HTTP or HTTPS link.");
+    }
+    domain = parsed.hostname;
+  } catch (error) {
+    toast(error.message || "Enter a valid HTTP or HTTPS link.", true);
+    return;
+  }
+  try {
+    const response = await fetch("/api/phish/incident", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        domain,
+        verdict: "Suspicious",
+        risk_score: 45,
+        evidence: [{ evidence: "User reported clicking a potentially unsafe link." }],
+        trigger: "user-panic-button"
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Incident creation failed (${response.status}).`);
+    await runPhishIncidentResponse(data.id);
+    await loadPhishIncidents();
+  } catch (error) {
+    toast(error.message || "Could not record the local incident.", true);
+  }
+}
+
+async function loadPhishWatch() {
+  try {
+    const response = await fetch("/api/phish/watch", { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`Watch status failed (${response.status}).`);
+    const state = await response.json();
+    setPill(
+      "phish-watch-state",
+      state.enabled ? "ok" : "off",
+      state.enabled ? "Click checks on" : "Click checks off"
+    );
+    byId("phish-watch-toggle").textContent = state.enabled
+      ? "Disable click checks"
+      : "Enable click checks";
+    byId("phish-watch-toggle").dataset.enabled = String(state.enabled);
+  } catch (error) {
+    setPill("phish-watch-state", "error", "Unavailable");
+    toast(error.message || "Could not read phishing watch status.", true);
+  }
+}
+
+async function togglePhishWatch() {
+  const button = byId("phish-watch-toggle");
+  const enabled = button.dataset.enabled !== "true";
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/phish/watch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `Watch update failed (${response.status}).`);
+    toast(enabled
+      ? "Click checks enabled. Sync the extension from its popup."
+      : "Local click checks disabled.");
+    await loadPhishWatch();
+  } catch (error) {
+    toast(error.message || "Could not update phishing watch state.", true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function revealPhishExtensionToken() {
+  const button = byId("phish-token-show");
+  button.disabled = true;
+  button.textContent = "Creating local token…";
+  try {
+    const port = Number(byId("phish-extension-port").value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error("Enter a valid dashboard port.");
+    }
+    const response = await fetch("/api/phish/extension-token", {
+      headers: { Accept: "application/json" },
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Could not create extension token.");
+    const tokenElement = byId("phish-extension-token");
+    tokenElement.textContent = data.token;
+    tokenElement.hidden = false;
+    tokenElement.dataset.port = String(port);
+    button.textContent = "Token ready — paste it in the extension";
+    try {
+      await navigator.clipboard.writeText(data.token);
+      toast("Local extension token copied to the clipboard.");
+    } catch {
+      toast("Copy the displayed token into the extension popup.");
+    }
+  } catch (error) {
+    toast(error.message || "Could not create extension token.", true);
+    button.textContent = "Reveal local extension token";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function loadDashboard() {
@@ -415,13 +689,26 @@ async function saveProfile(event) {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadDashboard(), loadReports(), loadUpdateStatus(), verifyBackendVersion()]);
+    await Promise.all([
+      loadDashboard(), loadReports(), loadUpdateStatus(), verifyBackendVersion(),
+      loadPhishHistory(), loadPhishWatch(), loadPhishIncidents(),
+    ]);
   } catch (error) {
     toast(error.message || "Could not refresh the dashboard.", true);
   }
 }
 
 document.addEventListener("click", (event) => {
+  const responseButton = event.target.closest("[data-phish-response]");
+  if (responseButton) {
+    void runPhishIncidentResponse(responseButton.dataset.phishResponse);
+    return;
+  }
+  const feedbackButton = event.target.closest("[data-phish-feedback]");
+  if (feedbackButton) {
+    void sendPhishFeedback(feedbackButton.dataset.phishFeedback);
+    return;
+  }
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) {
     event.preventDefault();
@@ -435,6 +722,14 @@ document.addEventListener("click", (event) => {
 byId("refresh-button").addEventListener("click", refreshAll);
 byId("update-button").addEventListener("click", updateNow);
 byId("profile-form").addEventListener("submit", saveProfile);
+byId("phish-check-form").addEventListener("submit", checkPhishUrl);
+byId("phish-allow").addEventListener("click", () => sendPhishFeedback("false-positive"));
+byId("phish-block").addEventListener("click", () => sendPhishFeedback("phishing"));
+byId("phish-history-refresh").addEventListener("click", loadPhishHistory);
+byId("phish-incidents-refresh").addEventListener("click", loadPhishIncidents);
+byId("phish-panic-button").addEventListener("click", reportClickedPhishLink);
+byId("phish-token-show").addEventListener("click", revealPhishExtensionToken);
+byId("phish-watch-toggle").addEventListener("click", togglePhishWatch);
 byId("close-report").addEventListener("click", () => byId("report-dialog").close());
 byId("report-dialog").addEventListener("click", (event) => {
   if (event.target === byId("report-dialog")) byId("report-dialog").close();

@@ -1,0 +1,2 @@
+# Reserved demo domain used only for safe local testing.
+phishing-demo.invalid

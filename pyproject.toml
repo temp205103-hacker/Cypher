@@ -33,7 +33,7 @@ include = ["cypher*"]
 
 [tool.setuptools.package-data]
 "cypher.rules.yara" = ["*.yar"]
-"cypher" = ["data/*.json"]
+"cypher" = ["data/*.json", "data/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

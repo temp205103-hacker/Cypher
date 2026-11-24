@@ -20,7 +20,7 @@ import keyring
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from rich.console import Console
 
 from cypher.config import CypherConfig, get_secret
@@ -33,6 +33,12 @@ from cypher.core import safe_zones
 from cypher.core import scheduling
 from cypher.core import git_hook
 from cypher.core import updater
+from cypher.phish import analyze_url as analyze_phish_url
+from cypher.phish.analyzer import blocked_domains as phish_blocked_domains
+from cypher.phish.bridge import extension_token as get_phish_extension_token
+from cypher.phish import reputation as phish_reputation
+from cypher.phish import watcher as phish_watcher
+from cypher.phish import incident as phish_incident
 from cypher.core.ai import answer_question, explain_risk
 from cypher.core.redact import redact_text
 from cypher.core import shield
@@ -50,6 +56,11 @@ _WEB_DIR = Path(__file__).parent
 _REPORTS: deque[dict[str, Any]] = deque(maxlen=50)
 _REPORTS_LOCK = RLock()
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
+_EXTENSION_API_PATHS = {
+    "/api/phish/check",
+    "/api/phish/blocked-domains",
+    "/api/phish/incident",
+}
 
 app = FastAPI(title="Cypher", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
@@ -83,6 +94,23 @@ class ActionRequest(BaseModel):
     consent_location: bool = False
 
 
+class PhishCheckRequest(BaseModel):
+    url: str = Field(..., max_length=8192)
+
+
+class PhishFeedbackRequest(BaseModel):
+    domain: str
+    outcome: str
+
+
+class PhishIncidentRequest(BaseModel):
+    domain: str = Field(..., max_length=253)
+    verdict: str
+    risk_score: int
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    trigger: str = "extension-click"
+
+
 @app.middleware("http")
 async def restrict_to_local_browser(request: Request, call_next: Callable[..., Any]) -> Any:
     host = request.headers.get("host", "")
@@ -91,9 +119,29 @@ async def restrict_to_local_browser(request: Request, call_next: Callable[..., A
         return JSONResponse({"detail": "Dashboard is available only on this computer."}, status_code=403)
 
     origin = request.headers.get("origin")
+    extension_origin = bool(origin and origin.startswith("chrome-extension://"))
+    token_required = request.url.path == "/api/phish/blocked-domains" or (
+        request.url.path in {"/api/phish/check", "/api/phish/incident"}
+        and (not origin or extension_origin)
+    )
+    if extension_origin and request.url.path not in _EXTENSION_API_PATHS:
+        return JSONResponse({"detail": "This extension API is not available."}, status_code=403)
+    if token_required or extension_origin:
+        try:
+            expected_token = get_phish_extension_token()
+        except (OSError, RuntimeError, ValueError) as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=503)
+        supplied_token = request.headers.get("x-cypher-token", "")
+        if not secrets.compare_digest(supplied_token, expected_token):
+            return JSONResponse({"detail": "Invalid Cypher extension token."}, status_code=403)
     if request.method not in {"GET", "HEAD", "OPTIONS"} and origin:
         parsed_origin = urlsplit(origin)
-        if parsed_origin.scheme != "http" or parsed_origin.hostname not in _LOOPBACK_HOSTS:
+        local_origin = (
+            parsed_origin.scheme == "http"
+            and parsed_origin.hostname in _LOOPBACK_HOSTS
+        )
+        extension_origin = origin.startswith("chrome-extension://")
+        if not local_origin and not extension_origin:
             return JSONResponse({"detail": "Cross-origin actions are not allowed."}, status_code=403)
 
     response = await call_next(request)
@@ -125,6 +173,114 @@ def apply_update() -> dict[str, Any]:
     try:
         return updater.update_checkout()
     except updater.UpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/phish/check")
+def phish_check(payload: PhishCheckRequest) -> dict[str, Any]:
+    try:
+        result = analyze_phish_url(payload.url)
+        phish_reputation.record_check(result)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
+
+
+@app.post("/api/phish/feedback")
+def phish_feedback(payload: PhishFeedbackRequest) -> dict[str, str]:
+    decision = {
+        "false-positive": "allow",
+        "phishing": "block",
+    }.get(payload.outcome.casefold())
+    if decision is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Outcome must be false-positive or phishing.",
+        )
+    try:
+        domain = phish_reputation.set_domain_decision(payload.domain, decision)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"domain": domain, "outcome": payload.outcome.casefold()}
+
+
+@app.get("/api/phish/extension-token")
+def phish_extension_token() -> dict[str, str]:
+    try:
+        return {"token": get_phish_extension_token()}
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/phish/blocked-domains")
+def phish_local_blocked_domains() -> dict[str, Any]:
+    try:
+        return {
+            "domains": phish_blocked_domains(),
+            "watch_enabled": bool(phish_watcher.status()["enabled"]),
+        }
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/phish/watch")
+def phish_watch_status() -> dict[str, Any]:
+    try:
+        return phish_watcher.status()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/phish/watch")
+def phish_watch_set(payload: dict[str, bool]) -> dict[str, Any]:
+    enabled = payload.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=400, detail="A boolean enabled value is required.")
+    try:
+        return phish_watcher.set_enabled(enabled)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/phish/history")
+def phish_history() -> list[dict[str, Any]]:
+    try:
+        return phish_reputation.history()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/phish/incident")
+def phish_create_incident(payload: PhishIncidentRequest) -> dict[str, Any]:
+    try:
+        return phish_incident.create_incident(
+            domain=payload.domain,
+            verdict=payload.verdict,
+            risk_score=payload.risk_score,
+            evidence=[
+                str(item.get("evidence", ""))[:500]
+                for item in payload.evidence[:20]
+                if item.get("evidence")
+            ],
+            trigger=payload.trigger,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/phish/incidents")
+def phish_incidents() -> list[dict[str, Any]]:
+    try:
+        return phish_incident.list_incidents()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/phish/incidents/{incident_id}/response")
+def phish_run_manual_response(incident_id: str) -> dict[str, Any]:
+    try:
+        return phish_incident.run_manual_response(incident_id)
+    except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

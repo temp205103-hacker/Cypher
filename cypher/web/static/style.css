@@ -302,6 +302,17 @@ code { padding: 2px 4px; border: 1px solid rgba(139, 158, 197, .15); border-radi
 .report-dialog::backdrop { background: rgba(4, 8, 17, .72); backdrop-filter: blur(5px); }
 .dialog-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
 .dialog-top h2 { margin-top: 4px; }
+.phish-result { margin-top: 16px; }
+.phish-verdict { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(11, 17, 31, .55); }
+.phish-verdict.phishing, .phish-verdict.suspicious { border-color: rgba(255, 127, 142, .32); }
+.phish-verdict.caution { border-color: rgba(255, 202, 122, .3); }
+.phish-verdict.safe { border-color: rgba(81, 228, 211, .2); }
+.phish-result-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.phish-result-top strong { font: 700 18px "Space Grotesk", sans-serif; }
+.phish-result-top span, .phish-host { color: var(--muted); font-size: 11px; }
+.risk-meter { height: 7px; margin-top: 12px; overflow: hidden; border-radius: 8px; background: rgba(145, 160, 189, .15); }
+.risk-meter span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--amber), var(--red)); }
+.phish-evidence { display: grid; gap: 7px; padding-left: 18px; color: #c3cee4; font-size: 11px; line-height: 1.5; }
 [hidden] { display: none !important; }
 
 @media (max-width: 1080px) {
