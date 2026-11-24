@@ -39,6 +39,31 @@ def test_updater_rejects_untrusted_origins(remote) -> None:
     assert not updater._trusted_origin(remote)
 
 
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://github.com/temp205103-hacker/GuardSnitch.ai.git",
+        "git@github.com:temp205103-hacker/GuardSnitch.ai.git",
+        "ssh://git@github.com/temp205103-hacker/GuardSnitch.ai",
+    ],
+)
+def test_updater_migrates_the_former_repository_origin(
+    monkeypatch, tmp_path, origin
+) -> None:
+    commands = []
+    monkeypatch.setattr(
+        updater,
+        "_git",
+        lambda _root, *arguments, **_kwargs: commands.append(arguments) or "",
+    )
+
+    updater._ensure_trusted_origin(tmp_path, origin)
+
+    assert commands == [
+        ("remote", "set-url", "origin", updater.TRUSTED_ORIGIN)
+    ]
+
+
 def test_updater_refuses_dirty_checkouts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         updater, "_fetch_status",
@@ -76,7 +101,7 @@ def test_updater_fast_forwards_a_clean_checkout(monkeypatch, tmp_path) -> None:
     _git(writer, "commit", "-am", "change")
     _git(writer, "push", "origin", "main")
     monkeypatch.setattr(updater, "_package_root", lambda: checkout)
-    monkeypatch.setattr(updater, "_trusted_origin", lambda _origin: True)
+    monkeypatch.setattr(updater, "_ensure_trusted_origin", lambda *_args: None)
 
     result = updater.update_checkout()
 

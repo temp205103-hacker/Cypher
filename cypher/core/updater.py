@@ -12,6 +12,8 @@ from typing import Any
 
 
 EXPECTED_REPOSITORY = "/temp205103-hacker/cypher"
+LEGACY_REPOSITORY = "/temp205103-hacker/guardsnitch.ai"
+TRUSTED_ORIGIN = "https://github.com/temp205103-hacker/Cypher.git"
 STATUS_CACHE_SECONDS = 300
 
 
@@ -50,31 +52,45 @@ def _git(root: Path, *arguments: str, timeout: int = 20) -> str:
     return result.stdout.strip()
 
 
-def _trusted_origin(origin: str) -> bool:
+def _repository_from_origin(origin: str) -> str | None:
     origin = origin.strip()
     if origin.startswith("git@github.com:"):
         repository = "/" + origin.partition(":")[2]
     else:
         parsed = urlsplit(origin)
         if parsed.scheme not in {"https", "ssh"} or parsed.hostname != "github.com":
-            return False
+            return None
         if parsed.query or parsed.fragment or parsed.password is not None:
-            return False
+            return None
         if parsed.scheme == "https" and parsed.username is not None:
-            return False
+            return None
         if parsed.scheme == "ssh" and parsed.username not in {None, "git"}:
-            return False
+            return None
         try:
             port = parsed.port
         except ValueError:
-            return False
+            return None
         if port not in {None, 443 if parsed.scheme == "https" else 22}:
-            return False
+            return None
         repository = parsed.path
     repository = repository.rstrip("/")
     if repository.casefold().endswith(".git"):
         repository = repository[:-4]
-    return repository.casefold() == EXPECTED_REPOSITORY
+    return repository.casefold()
+
+
+def _trusted_origin(origin: str) -> bool:
+    return _repository_from_origin(origin) == EXPECTED_REPOSITORY
+
+
+def _ensure_trusted_origin(root: Path, origin: str) -> None:
+    repository = _repository_from_origin(origin)
+    if repository == EXPECTED_REPOSITORY:
+        return
+    if repository == LEGACY_REPOSITORY:
+        _git(root, "remote", "set-url", "origin", TRUSTED_ORIGIN)
+        return
+    raise UpdateError("The origin remote is not the trusted Cypher GitHub repository.")
 
 
 def _fetch_status() -> dict[str, Any]:
@@ -90,8 +106,7 @@ def _fetch_status() -> dict[str, Any]:
     if branch != "main":
         raise UpdateError("Updates are available only from the main branch.")
     origin = _git(root, "remote", "get-url", "origin")
-    if not _trusted_origin(origin):
-        raise UpdateError("The origin remote is not the trusted Cypher GitHub repository.")
+    _ensure_trusted_origin(root, origin)
 
     _git(root, "fetch", "--quiet", "origin", "main", timeout=15)
     dirty = bool(_git(root, "status", "--porcelain"))
