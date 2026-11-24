@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-Write-Host "GuardSnitch.ai installer" -ForegroundColor Cyan
+Write-Host "Cypher installer" -ForegroundColor Cyan
 
 $python = Get-Command py -ErrorAction SilentlyContinue
 if (-not $python) {
@@ -29,14 +29,19 @@ $pip = Join-Path $venv "Scripts\python.exe"
 & $pip -m pip install --upgrade pip setuptools wheel
 & $pip -m pip install -e $PSScriptRoot
 if ($LASTEXITCODE -ne 0) {
-    throw "GuardSnitch.ai installation failed."
+    throw "Cypher installation failed."
 }
 
-& $pip -m guardsnitch.cli shield startup install
+& $pip -c "from cypher.core.scheduling import migrate_legacy_schedules; migrate_legacy_schedules()"
+if ($LASTEXITCODE -ne 0) {
+    throw "Existing scheduled jobs could not be migrated to Cypher."
+}
+
+& $pip -m cypher.cli shield startup install
 if ($LASTEXITCODE -ne 0) {
     throw "The reverse-shell shield could not be registered for Windows sign-in."
 }
 
 Write-Host ""
-Write-Host "Installed GuardSnitch.ai and enabled the background shield." -ForegroundColor Green
-Write-Host 'Open a new PowerShell and run: GuardSnitch.ai -h'
+Write-Host "Installed Cypher and enabled the background shield." -ForegroundColor Green
+Write-Host 'Open a new PowerShell and run: Cypher -h'

@@ -2,10 +2,10 @@ import pytest
 from fastapi import HTTPException
 from typer.testing import CliRunner
 
-from guardsnitch.cli import app
-from guardsnitch.config import GuardConfig
-from guardsnitch.core import machine_scan, malware, quarantine
-from guardsnitch.web import app as dashboard
+from cypher.cli import app
+from cypher.config import CypherConfig
+from cypher.core import machine_scan, malware, quarantine
+from cypher.web import app as dashboard
 
 
 def test_machine_scan_summarizes_volumes_and_quarantines_clamav_matches(monkeypatch) -> None:
@@ -182,7 +182,7 @@ def test_dashboard_machine_scan_returns_summary(monkeypatch) -> None:
 
 def test_cli_machine_scan_shows_summary(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("APPDATA", str(tmp_path))
-    GuardConfig(name="Test", alert_email="test@example.com").save()
+    CypherConfig(name="Test", alert_email="test@example.com").save()
     summary = {
         "status": "complete", "volumes_scanned": 1, "volumes_failed": 0,
         "total_findings": 1, "total_quarantined": 1,

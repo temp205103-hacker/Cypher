@@ -6,11 +6,11 @@ from fastapi import HTTPException
 from rich.console import Console
 from typer.testing import CliRunner
 
-from guardsnitch import cli
-from guardsnitch.config import GuardConfig
-from guardsnitch.core import theft
-from guardsnitch.core import shield_service
-from guardsnitch.web import app as dashboard
+from cypher import cli
+from cypher.config import CypherConfig
+from cypher.core import theft
+from cypher.core import shield_service
+from cypher.web import app as dashboard
 
 
 def test_online_flag_launches_dashboard_without_interactive_setup(monkeypatch) -> None:
@@ -25,19 +25,20 @@ def test_online_flag_launches_dashboard_without_interactive_setup(monkeypatch) -
 
 
 def test_health_endpoint_exposes_dashboard_api_version() -> None:
+    assert dashboard.health()["name"] == "Cypher"
     assert dashboard.health()["api_version"] >= 2
 
 
 def test_cli_detects_outdated_dashboard_process(monkeypatch) -> None:
     from io import BytesIO
 
-    import guardsnitch.cli as cli
+    import cypher.cli as cli
 
     monkeypatch.setattr(
         cli,
         "urlopen",
         lambda *_args, **_kwargs: BytesIO(
-            b'{"name":"GuardSnitch.ai","scope":"localhost"}'
+            b'{"name":"Cypher","scope":"localhost"}'
         ),
     )
 
@@ -86,7 +87,7 @@ def test_disarm_accepts_a_pin_and_refuses_an_incorrect_pin(monkeypatch, tmp_path
     salt = b"s" * 16
     expected = hashlib.pbkdf2_hmac("sha256", b"correct-pin", salt, 200_000)
     stored = base64.urlsafe_b64encode(salt + expected).decode("ascii")
-    monkeypatch.setattr(theft.keyring, "get_password", lambda *_args: stored)
+    monkeypatch.setattr(theft, "get_secret", lambda _name: stored)
 
     service = theft.TheftProtection(console=Console(file=StringIO()))
     service.state_path = tmp_path / "theft-state.json"
@@ -117,7 +118,7 @@ def test_dashboard_profile_save_stores_hashed_pin(monkeypatch, tmp_path) -> None
     assert result["configured"] is True
     assert result["email_delivery"] is False
     assert stored["disarm-pin"] != "test-pin"
-    assert GuardConfig.load().name == "Test User"
+    assert CypherConfig.load().name == "Test User"
 
 
 def test_firewall_ip_block_normalizes_address_and_creates_scoped_rule(monkeypatch) -> None:

@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "guardsnitch-ai"
+name = "cypher"
 version = "0.1.0"
 description = "Windows-first local security companion"
 readme = "README.md"
@@ -26,16 +26,14 @@ camera = ["opencv-python>=4.10,<5", "mss>=9,<10"]
 windows = ["winsdk>=1.0,<2"]
 
 [project.scripts]
-"GuardSnitch.ai" = "guardsnitch.cli:main"
-"guardsnitch" = "guardsnitch.cli:main"
-"gsnitch" = "guardsnitch.cli:main"
+"cypher" = "cypher.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["guardsnitch*"]
+include = ["cypher*"]
 
 [tool.setuptools.package-data]
-"guardsnitch.rules.yara" = ["*.yar"]
-"guardsnitch" = ["data/*.json"]
+"cypher.rules.yara" = ["*.yar"]
+"cypher" = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

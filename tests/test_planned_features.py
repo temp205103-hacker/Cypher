@@ -6,10 +6,10 @@ import pytest
 from fastapi import HTTPException
 from typer.testing import CliRunner
 
-from guardsnitch.cli import app
-from guardsnitch.config import GuardConfig
-from guardsnitch.core import safe_run, safe_zones, scanner, scheduling
-from guardsnitch.web import app as dashboard
+from cypher.cli import app
+from cypher.config import CypherConfig
+from cypher.core import safe_run, safe_zones, scanner, scheduling
+from cypher.web import app as dashboard
 
 
 def test_source_scanner_finds_secrets_pii_and_risky_code(tmp_path: Path) -> None:
@@ -79,6 +79,7 @@ def test_safe_run_normalizes_unicode_host_for_punycode_detection() -> None:
 def test_schedule_validates_intervals_and_creates_expected_task(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(scheduling.os, "name", "nt")
+    monkeypatch.setattr(scheduling, "migrate_legacy_schedules", lambda: None)
     monkeypatch.setattr(scheduling.subprocess, "run", lambda args, **kwargs: (
         calls.append((args, kwargs))
         or scheduling.subprocess.CompletedProcess(args, 0, stdout="created", stderr="")
@@ -88,6 +89,43 @@ def test_schedule_validates_intervals_and_creates_expected_task(monkeypatch) -> 
     assert "HOURLY" in calls[0][0]
     with pytest.raises(ValueError, match="HH:MM"):
         scheduling.set_schedule("ip", "daily", "25:00")
+
+
+def test_legacy_scheduled_task_is_renamed_and_repointed(monkeypatch) -> None:
+    old_task = (
+        '<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">'
+        "<RegistrationInfo><URI>\\GuardSnitchMalwareScan</URI></RegistrationInfo>"
+        "<Actions><Exec><Command>python.exe</Command>"
+        "<Arguments>-m guardsnitch.cli malware scan</Arguments></Exec></Actions></Task>"
+    )
+    commands = []
+
+    def run(arguments: list[str]) -> str:
+        commands.append(arguments)
+        if arguments[0] == "/Query" and arguments[2] == "GuardSnitchMalwareScan":
+            return old_task
+        if arguments[0] == "/Query":
+            raise RuntimeError("Task does not exist")
+        if arguments[0] == "/Create":
+            from xml.etree import ElementTree
+
+            root = ElementTree.parse(arguments[4]).getroot()
+            values = {
+                node.tag.rsplit("}", 1)[-1]: node.text
+                for node in root.iter()
+                if node.tag.rsplit("}", 1)[-1] in {"URI", "Command", "Arguments"}
+            }
+            assert values["URI"] == "\\CypherMalwareScan"
+            assert values["Command"] == scheduling.sys.executable
+            assert values["Arguments"] == "-m cypher.cli malware scan"
+            return "created"
+        return "deleted"
+
+    monkeypatch.setattr(scheduling, "_run", run)
+
+    scheduling.migrate_legacy_schedules()
+
+    assert any(args[0] == "/Delete" and args[2] == "GuardSnitchMalwareScan" for args in commands)
 
 
 def test_safe_zone_add_remove_and_dashboard_list(monkeypatch, tmp_path) -> None:
@@ -115,7 +153,7 @@ def test_dashboard_records_source_findings_and_enables_explanation(monkeypatch, 
     )
 
     assert explanation["result"]["explanation"]
-    assert json.loads((tmp_path / "GuardSnitch" / "scan-findings.json").read_text(encoding="utf-8"))
+    assert json.loads((tmp_path / "Cypher" / "scan-findings.json").read_text(encoding="utf-8"))
 
 
 def test_dashboard_does_not_report_invalid_schedule_as_complete(monkeypatch) -> None:
@@ -134,7 +172,7 @@ def test_dashboard_does_not_report_invalid_schedule_as_complete(monkeypatch) -> 
 
 def test_cli_source_scan_and_offline_question_work(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("APPDATA", str(tmp_path))
-    GuardConfig(name="Test", alert_email="test@example.com").save()
+    CypherConfig(name="Test", alert_email="test@example.com").save()
     source = tmp_path / "source.py"
     source.write_text('email = "person@example.com"\n', encoding="utf-8")
     runner = CliRunner()
@@ -150,7 +188,7 @@ def test_cli_source_scan_and_offline_question_work(monkeypatch, tmp_path) -> Non
 
 def test_staged_cli_scan_blocks_findings_in_pre_commit_hook(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
-    GuardConfig(name="Test", alert_email="test@example.com").save()
+    CypherConfig(name="Test", alert_email="test@example.com").save()
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)

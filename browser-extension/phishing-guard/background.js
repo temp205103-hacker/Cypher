@@ -4,7 +4,7 @@ importScripts("url-utils.js");
 
 const FEED_URL =
   "https://raw.githubusercontent.com/openphish/public_feed/refs/heads/main/feed.txt";
-const UPDATE_ALARM = "guardsnitch-phishing-feed";
+const UPDATE_ALARM = "cypher-phishing-feed";
 const UPDATE_INTERVAL_MINUTES = 360;
 const RULE_ID_START = 1;
 const MAX_DYNAMIC_RULES = 5000;
@@ -44,7 +44,7 @@ async function refreshFeed() {
       if (!value || value.startsWith("#")) {
         continue;
       }
-      const entry = GuardSnitchUrlCheck.entryForUrl(value);
+      const entry = CypherUrlCheck.entryForUrl(value);
       if (entry) {
         entries.add(entry);
       }

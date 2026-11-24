@@ -1,6 +1,6 @@
 import pytest
 
-from guardsnitch.fscan.engine import score_signals
+from cypher.fscan.engine import score_signals
 
 
 @pytest.mark.parametrize(

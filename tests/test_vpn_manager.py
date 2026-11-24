@@ -1,7 +1,7 @@
 import json
 
-from guardsnitch.vpn.manager import VpnManager
-from guardsnitch.vpn.providers.mock import MockProvider
+from cypher.vpn.manager import VpnManager
+from cypher.vpn.providers.mock import MockProvider
 
 
 def test_mock_connect_persists_state(tmp_path) -> None:

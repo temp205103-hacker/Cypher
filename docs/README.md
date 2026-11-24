@@ -1,4 +1,4 @@
-# GuardSnitch.ai documentation
+# Cypher documentation
 
 Implementation documentation will grow with each module.
 
@@ -6,7 +6,7 @@ Implementation documentation will grow with each module.
 - Destructive actions require explicit approval.
 - Evidence is encrypted at rest.
 - Detection helps identify common patterns and does not guarantee 100% protection.
-- OpenVPN profiles are real `.ovpn` configuration files in `%APPDATA%\GuardSnitch\openvpn_profiles`.
+- Existing OpenVPN profiles are migrated to `%APPDATA%\Cypher\openvpn_profiles`.
 - The reverse-shell shield runs as a background process and may terminate suspicious processes
   and create Windows Firewall rules.
 - The installer registers a current-user Windows logon startup entry for the shield; detections

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "GuardSnitch.ai Phishing Guard",
+  "name": "Cypher",
   "version": "0.1.0",
   "description": "Checks browser page links against a locally cached phishing feed.",
   "permissions": [
@@ -15,7 +15,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "GuardSnitch.ai Phishing Guard",
+    "default_title": "Cypher",
     "default_popup": "popup.html"
   },
   "content_scripts": [

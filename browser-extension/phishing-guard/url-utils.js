@@ -1,6 +1,6 @@
 "use strict";
 
-globalThis.GuardSnitchUrlCheck = Object.freeze({
+globalThis.CypherUrlCheck = Object.freeze({
   hostForUrl(value) {
     try {
       const parsed = new URL(value);

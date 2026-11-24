@@ -1,24 +1,24 @@
 "use strict";
 
 (() => {
-  if (window.__guardSnitchPhishingGuardLoaded) {
+  if (window.__cypherPhishingGuardLoaded) {
     return;
   }
-  window.__guardSnitchPhishingGuardLoaded = true;
+  window.__cypherPhishingGuardLoaded = true;
 
   let phishingEntries = new Set();
   let listLoaded = false;
   let warningOpen = false;
 
   function isPhishingLink(anchor) {
-    return GuardSnitchUrlCheck.isPhishingUrl(anchor.href, phishingEntries);
+    return CypherUrlCheck.isPhishingUrl(anchor.href, phishingEntries);
   }
 
   function scanLink(anchor) {
     if (isPhishingLink(anchor)) {
-      anchor.dataset.guardsnitchPhishing = "true";
+      anchor.dataset.cypherPhishing = "true";
     } else {
-      delete anchor.dataset.guardsnitchPhishing;
+      delete anchor.dataset.cypherPhishing;
     }
   }
 
@@ -85,7 +85,7 @@
         <section class="dialog" role="alertdialog" aria-modal="true"
           aria-labelledby="guard-title" aria-describedby="guard-message">
           <h2 id="guard-title">Phishing link detected</h2>
-          <p id="guard-message">This link matches GuardSnitch.ai's phishing list.
+          <p id="guard-message">This link matches Cypher's phishing list.
             It may be unsafe to open.</p>
           <p class="url"></p>
           <div class="buttons">

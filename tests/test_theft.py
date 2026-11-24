@@ -1,7 +1,7 @@
 import pytest
 
-from guardsnitch.core import theft
-from guardsnitch.core.theft import score_theft_signals, should_trigger
+from cypher.core import theft
+from cypher.core.theft import score_theft_signals, should_trigger
 
 
 def test_one_theft_signal_does_not_trigger() -> None:

@@ -3,9 +3,9 @@ import subprocess
 
 import pytest
 
-from guardsnitch import cli
-from guardsnitch.core import updater
-from guardsnitch.web import app as dashboard
+from cypher import cli
+from cypher.core import updater
+from cypher.web import app as dashboard
 from typer.testing import CliRunner
 
 
@@ -16,9 +16,9 @@ def _git(path: Path, *args: str) -> None:
 @pytest.mark.parametrize(
     "remote",
     [
-        "https://github.com/temp205103-hacker/GuardSnitch.ai.git",
-        "git@github.com:temp205103-hacker/GuardSnitch.ai.git",
-        "ssh://git@github.com/temp205103-hacker/GuardSnitch.ai",
+        "https://github.com/temp205103-hacker/Cypher.git",
+        "git@github.com:temp205103-hacker/Cypher.git",
+        "ssh://git@github.com/temp205103-hacker/Cypher",
     ],
 )
 def test_updater_accepts_only_expected_origin_forms(remote) -> None:
@@ -28,11 +28,11 @@ def test_updater_accepts_only_expected_origin_forms(remote) -> None:
 @pytest.mark.parametrize(
     "remote",
     [
-        "https://github.com/someone-else/GuardSnitch.ai.git",
-        "https://user:token@github.com/temp205103-hacker/GuardSnitch.ai.git",
-        "https://example.com/temp205103-hacker/GuardSnitch.ai.git",
-        "https://github.com:8443/temp205103-hacker/GuardSnitch.ai.git",
-        "https://github.com:bad-port/temp205103-hacker/GuardSnitch.ai.git",
+        "https://github.com/someone-else/Cypher.git",
+        "https://user:token@github.com/temp205103-hacker/Cypher.git",
+        "https://example.com/temp205103-hacker/Cypher.git",
+        "https://github.com:8443/temp205103-hacker/Cypher.git",
+        "https://github.com:bad-port/temp205103-hacker/Cypher.git",
     ],
 )
 def test_updater_rejects_untrusted_origins(remote) -> None:

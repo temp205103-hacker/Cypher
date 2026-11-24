@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from guardsnitch.ip.leaktest import run_leak_test
-from guardsnitch.ip.rotate import IpRotationError, rotate
+from cypher.ip.leaktest import run_leak_test
+from cypher.ip.rotate import IpRotationError, rotate
 
 
 class FakeVpnManager:

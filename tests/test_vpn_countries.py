@@ -1,6 +1,6 @@
 import pytest
 
-from guardsnitch.vpn.countries import resolve_country
+from cypher.vpn.countries import resolve_country
 
 
 @pytest.mark.parametrize(

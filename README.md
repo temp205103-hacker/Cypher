@@ -1,6 +1,6 @@
-# GuardSnitch.ai
+# Cypher
 
-GuardSnitch.ai is a Windows-first security companion with a Python command-line interface.
+Cypher is a Windows-first security companion with a Python command-line interface.
 It brings together selected tools for browser phishing checks, VPN management, local malware
 scanning, suspicious-connection alerts, and theft-protection workflows.
 
@@ -11,9 +11,9 @@ Windows updates, or backups. See [Current limitations](#current-limitations).
 
 - [Requirements](#requirements)
 - [Install and first-time setup](#install-and-first-time-setup)
-- [Run GuardSnitch.ai](#run-guardsnitchai)
+- [Run Cypher](#run-cypher)
 - [Web dashboard](#web-dashboard)
-- [Updating GuardSnitch.ai](#updating-guardsnitchai)
+- [Updating Cypher](#updating-cypher)
 - [Features and how to use them](#features-and-how-to-use-them)
 - [Current limitations](#current-limitations)
 
@@ -35,14 +35,14 @@ From the project directory, run:
 .\install.ps1
 ```
 
-The installer creates a `.venv`, installs GuardSnitch.ai, then starts the first-time setup if
+The installer creates a `.venv`, installs Cypher, then starts the first-time setup if
 your name or theft-alert email is missing. Setup also asks for sender credentials, feature
 preferences, and a disarm PIN. If you enable theft protection, it asks for location and webcam
 consent. The current email sender uses Gmail SMTP (`smtp.gmail.com:587`); delivery requires
 compatible sender credentials and explicit consent to share location.
 
 The installer registers the reverse-shell shield to start at this Windows user's next sign-in.
-To start it immediately in the current session, use `GuardSnitch.ai shield start` after activating
+To start it immediately in the current session, use `Cypher shield start` after activating
 the environment below.
 
 If PowerShell blocks the installer script, allow it for the current PowerShell session only:
@@ -52,7 +52,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\install.ps1
 ```
 
-## Run GuardSnitch.ai
+## Run Cypher
 
 Activate the installed environment in each new PowerShell window:
 
@@ -63,19 +63,18 @@ Activate the installed environment in each new PowerShell window:
 Then view help or open the CLI welcome screen:
 
 ```powershell
-GuardSnitch.ai --help
-GuardSnitch.ai
+Cypher --help
+Cypher
 ```
 
-The commands `guardsnitch` and `gsnitch` are also installed as aliases. Run
-`GuardSnitch.ai setup` to reopen setup.
+Run `Cypher setup` to reopen setup.
 
 ## Web dashboard
 
 Start the dashboard from the installed environment:
 
 ```powershell
-GuardSnitch.ai --online
+Cypher --online
 ```
 
 It opens a browser at `http://127.0.0.1:8787`. The dashboard binds to loopback only and is not
@@ -90,7 +89,7 @@ restore, or delete files. Each completed or failed action displays a report and 
 dashboard's recent activity. Reports are kept in memory and limited to the latest 50 actions.
 
 Basic profile preferences and a hashed disarm PIN can be saved in the dashboard. Use
-`GuardSnitch.ai setup` for SMTP credential setup and email verification. The phishing extension
+`Cypher setup` for SMTP credential setup and email verification. The phishing extension
 continues to run in Chrome or Edge, separately from the dashboard. Dashboard actions that require
 network access (such as VPN connections, public-IP checks, or configured test-email delivery) still
 use those services when you explicitly start them.
@@ -99,13 +98,13 @@ The dashboard also includes source scanning, redaction, safe download inspection
 and IP schedules, rotation history, safe-zone management, and offline security guidance. These
 tools are also available from the CLI.
 
-## Updating GuardSnitch.ai
+## Updating Cypher
 
 The dashboard checks the trusted `main` branch and shows a red dot on the update icon when newer
 commits are available. Click the icon to fast-forward the checkout. The CLI equivalent is:
 
 ```powershell
-GuardSnitch.ai --update
+Cypher --update
 ```
 
 Updates require a Git clone with the expected GitHub `origin`, the `main` branch, and no local
@@ -135,20 +134,20 @@ feed has not loaded. It protects Chrome/Edge only, not links opened in other app
 ### VPN and IP diagnostics
 
 For real VPN connections, install OpenVPN, make `openvpn.exe` available on `PATH`, and place
-`.ovpn` profiles in `%APPDATA%\GuardSnitch\openvpn_profiles`. You can also pass an absolute
-profile path.
+Existing `.ovpn` profiles are migrated to `%APPDATA%\Cypher\openvpn_profiles`. You can also pass
+an absolute profile path.
 
 ```powershell
-GuardSnitch.ai -v -c "my-profile"
-GuardSnitch.ai --vpn off
-GuardSnitch.ai vpn status
-GuardSnitch.ai vpn countries
-GuardSnitch.ai vpn disconnect
-GuardSnitch.ai vpn reconnect
-GuardSnitch.ai ip status
-GuardSnitch.ai ip rotate --dry-run
-GuardSnitch.ai ip rotate
-GuardSnitch.ai ip leak-test
+Cypher -v -c "my-profile"
+Cypher --vpn off
+Cypher vpn status
+Cypher vpn countries
+Cypher vpn disconnect
+Cypher vpn reconnect
+Cypher ip status
+Cypher ip rotate --dry-run
+Cypher ip rotate
+Cypher ip leak-test
 ```
 
 IP rotation switches between installed OpenVPN profiles and requires an active real tunnel.
@@ -157,7 +156,7 @@ assign a different address. Leak diagnostics query ipify for public addresses an
 DNS settings with the active profile. The DNS comparison is a warning heuristic, not proof that
 DNS traffic stayed in the tunnel.
 
-For development only, `GUARDSNITCH_VPN_PROVIDER=mock` enables a simulated provider. Mock mode
+For development only, `CYPHER_VPN_PROVIDER=mock` enables a simulated provider. Mock mode
 does not create a VPN tunnel, encrypt traffic, change your public address, or change firewall rules.
 
 ### Malware scans and Downloads monitoring
@@ -166,26 +165,26 @@ Install ClamAV or YARA locally and make the executable available on `PATH`. Clam
 should be kept current. The included YARA rules are examples, not a complete antivirus engine.
 
 ```powershell
-GuardSnitch.ai fscan --help
-GuardSnitch.ai fscan
-GuardSnitch.ai fscan --quick
-GuardSnitch.ai fscan --full
-GuardSnitch.ai fscan --path "C:\Users\you\Downloads"
-GuardSnitch.ai fscan --usb
-GuardSnitch.ai malware status
-GuardSnitch.ai malware scan
-GuardSnitch.ai malware scan "C:\Users\you\Downloads"
-GuardSnitch.ai malware scan-machine
-GuardSnitch.ai malware scan-machine --yes
-GuardSnitch.ai malware stop <finding-id>
-GuardSnitch.ai malware monitor start
-GuardSnitch.ai malware monitor status
-GuardSnitch.ai malware findings
-GuardSnitch.ai quarantine list
-GuardSnitch.ai quarantine isolate <finding-id>
-GuardSnitch.ai quarantine restore <finding-id>
-GuardSnitch.ai quarantine delete <finding-id>
-GuardSnitch.ai malware monitor stop
+Cypher fscan --help
+Cypher fscan
+Cypher fscan --quick
+Cypher fscan --full
+Cypher fscan --path "C:\Users\you\Downloads"
+Cypher fscan --usb
+Cypher malware status
+Cypher malware scan
+Cypher malware scan "C:\Users\you\Downloads"
+Cypher malware scan-machine
+Cypher malware scan-machine --yes
+Cypher malware stop <finding-id>
+Cypher malware monitor start
+Cypher malware monitor status
+Cypher malware findings
+Cypher quarantine list
+Cypher quarantine isolate <finding-id>
+Cypher quarantine restore <finding-id>
+Cypher quarantine delete <finding-id>
+Cypher malware monitor stop
 ```
 
 `fscan` is the first local file-protection layer: it hashes files, checks the bundled local hash
@@ -200,14 +199,14 @@ findings, 1 for findings/partial scans, and 2 when the risk scorer reaches Dange
 Manual scans run when requested. The optional monitor scans completed files in your Downloads
 folder and queues findings; it does not remove files automatically. Isolating, restoring, or
 permanently deleting a file requires confirmation. Files are scanned locally and are not uploaded
-by GuardSnitch.ai.
+by Cypher.
 
 The whole-machine scan checks mounted local fixed/removable drives (not network shares), can take a
 long time, and may be partial when files are inaccessible. It requires ClamAV or YARA. After
 confirmation, ClamAV detections are moved to quarantine; heuristic YARA findings remain queued for
 review. You can permanently delete quarantined files from the dashboard or with `quarantine delete`.
 `malware stop <finding-id>` can stop a running process only when its executable path exactly matches
-a finding. GuardSnitch.ai does not execute detected files; do not run suspected malware.
+a finding. Cypher does not execute detected files; do not run suspected malware.
 
 ### Live reverse-shell shield
 
@@ -218,12 +217,12 @@ Windows Firewall rule, terminates the process, and tries OpenVPN profile rotatio
 connection and alternate profile are available.
 
 ```powershell
-GuardSnitch.ai shield start
-GuardSnitch.ai shield status
-GuardSnitch.ai shield stop
-GuardSnitch.ai shield startup install
-GuardSnitch.ai shield startup status
-GuardSnitch.ai shield startup uninstall
+Cypher shield start
+Cypher shield status
+Cypher shield stop
+Cypher shield startup install
+Cypher shield startup status
+Cypher shield startup uninstall
 ```
 
 The installer registers the shield for this Windows user's sign-in. Detection occurs after a
@@ -233,10 +232,10 @@ administrator rights. The shield can miss threats or prompt on legitimate connec
 ### Theft protection
 
 ```powershell
-GuardSnitch.ai theft arm
-GuardSnitch.ai theft test
-GuardSnitch.ai theft status
-GuardSnitch.ai theft disarm
+Cypher theft arm
+Cypher theft test
+Cypher theft status
+Cypher theft disarm
 ```
 
 Location and webcam collection require consent in setup. A confirmed theft event can queue a local
@@ -251,13 +250,13 @@ email.
 ### Source scanning and privacy tools
 
 ```powershell
-GuardSnitch.ai scan . --format json
-GuardSnitch.ai scan --staged
-GuardSnitch.ai redact .\notes.txt
-GuardSnitch.ai explain <finding-id>
-GuardSnitch.ai ask "How should I handle an exposed token?"
-GuardSnitch.ai safe-run https://example.com/login
-GuardSnitch.ai install-hook
+Cypher scan . --format json
+Cypher scan --staged
+Cypher redact .\notes.txt
+Cypher explain <finding-id>
+Cypher ask "How should I handle an exposed token?"
+Cypher safe-run https://example.com/login
+Cypher install-hook
 ```
 
 The local source scanner checks for selected secret/PII patterns and risky code constructs; it is
@@ -267,10 +266,10 @@ contacts the URL. Its heuristics cannot establish that an unverified site is saf
 hook scans staged Git content and blocks a commit when it reports findings.
 
 Recurring schedules use Windows Task Scheduler. Configure malware scans with
-`GuardSnitch.ai malware schedule hourly`, `daily`, or `off`; configure IP rotation with
-`GuardSnitch.ai ip schedule daily --at 03:00` or `off`. Use `GuardSnitch.ai ip history` to review
-local rotation attempts and `GuardSnitch.ai ip stop` to remove its scheduled task. Trusted Wi-Fi
-safe zones can be managed with `GuardSnitch.ai theft safe-zones add "Network name"`,
+`Cypher malware schedule hourly`, `daily`, or `off`; configure IP rotation with
+`Cypher ip schedule daily --at 03:00` or `off`. Use `Cypher ip history` to review
+local rotation attempts and `Cypher ip stop` to remove its scheduled task. Trusted Wi-Fi
+safe zones can be managed with `Cypher theft safe-zones add "Network name"`,
 `remove "Network name"`, and `list`; background theft detection is not implemented.
 
 ## Current limitations
@@ -287,5 +286,5 @@ safe zones can be managed with `GuardSnitch.ai theft safe-zones add "Network nam
 - A VPN kill switch is not implemented.
 
 Detection is not guaranteed. Keep Windows and security software up to date, use strong
-authentication, and maintain tested backups. A clean GuardSnitch.ai scan is not proof that a file
+authentication, and maintain tested backups. A clean Cypher scan is not proof that a file
 or machine is safe.

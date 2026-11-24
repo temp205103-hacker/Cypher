@@ -3,13 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from guardsnitch.core import shield
-from guardsnitch.core import shield_service
+from cypher.core import shield
+from cypher.core import shield_service
 
 
 def test_shield_allowlist_is_persisted(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("APPDATA", str(tmp_path))
-    allowlist_path = tmp_path / "GuardSnitch" / "shield_allowlist.json"
+    allowlist_path = tmp_path / "Cypher" / "shield_allowlist.json"
     monkeypatch.setattr(shield, "ALLOWED_PROCESSES_PATH", allowlist_path)
 
     result = shield.set_process_allowed("PowerShell.EXE")

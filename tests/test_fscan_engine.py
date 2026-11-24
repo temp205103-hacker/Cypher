@@ -3,11 +3,11 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from guardsnitch.cli import app
-from guardsnitch.fscan import engine
-from guardsnitch.fscan.engine import ScanOptions, analyze_file, scan_paths
-from guardsnitch.fscan.hashing import cached_sha256
-from guardsnitch.fscan.trust import EICAR_TEST_SHA256, allow_hash, hash_reputation, is_excluded_path
+from cypher.cli import app
+from cypher.fscan import engine
+from cypher.fscan.engine import ScanOptions, analyze_file, scan_paths
+from cypher.fscan.hashing import cached_sha256
+from cypher.fscan.trust import EICAR_TEST_SHA256, allow_hash, hash_reputation, is_excluded_path
 
 
 SAFE_EICAR_FIXTURE = b"Harmless placeholder; scanner test supplies the published EICAR test hash."
@@ -80,7 +80,7 @@ def test_guardignore_skips_matching_files(tmp_path) -> None:
 def test_default_protection_excludes_project_but_explicit_scan_can_include(tmp_path) -> None:
     repository = Path(__file__).resolve().parents[1]
 
-    assert is_excluded_path(repository / "guardsnitch" / "cli.py")
+    assert is_excluded_path(repository / "cypher" / "cli.py")
     assert is_excluded_path(repository / "demo")
     assert not is_excluded_path(tmp_path / "download.exe")
 
@@ -117,4 +117,4 @@ def test_fscan_help_includes_modes_and_examples(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 0
     for option in ("--quick", "--full", "--path", "--usb", "--format", "--quiet", "--verbose"):
         assert option in result.stdout
-    assert "GuardSnitch.ai fscan --usb" in result.stdout
+    assert "Cypher fscan --usb" in result.stdout
