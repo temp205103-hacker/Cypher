@@ -6,6 +6,29 @@ const FEED_URL =
   "https://raw.githubusercontent.com/openphish/public_feed/refs/heads/main/feed.txt";
 const UPDATE_ALARM = "guardsnitch-phishing-feed";
 const UPDATE_INTERVAL_MINUTES = 360;
+const RULE_ID_START = 1;
+const MAX_DYNAMIC_RULES = 5000;
+
+async function installBlockingRules(entries) {
+  const selected = Array.from(entries).slice(0, MAX_DYNAMIC_RULES);
+  const rules = selected.map((entry, index) => ({
+    id: RULE_ID_START + index,
+    priority: 1,
+    action: { type: "block" },
+    condition: {
+      urlFilter: `||${entry.replace(/[\\*^|]/g, "\\$&")}`,
+      resourceTypes: ["main_frame", "sub_frame", "script", "xmlhttprequest", "other"]
+    }
+  }));
+  const currentRules = await chrome.declarativeNetRequest.getDynamicRules();
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: currentRules
+      .filter((rule) => rule.id >= RULE_ID_START && rule.id < RULE_ID_START + MAX_DYNAMIC_RULES)
+      .map((rule) => rule.id),
+    addRules: rules
+  });
+  return selected.length;
+}
 
 async function refreshFeed() {
   try {
@@ -30,12 +53,14 @@ async function refreshFeed() {
       throw new Error("The feed contained no usable phishing URLs");
     }
 
+    const blockedRuleCount = await installBlockingRules(entries);
     await chrome.storage.local.set({
       phishingEntries: Array.from(entries),
+      blockedRuleCount,
       feedUpdatedAt: Date.now(),
       feedError: ""
     });
-    return { ok: true, entryCount: entries.size };
+    return { ok: true, entryCount: blockedRuleCount };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await chrome.storage.local.set({ feedError: message });

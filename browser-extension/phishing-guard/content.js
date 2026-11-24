@@ -43,7 +43,7 @@
     }
   }
 
-  function showWarning(url, openInNewTab) {
+  function showWarning(url) {
     if (warningOpen) {
       return;
     }
@@ -79,7 +79,6 @@
           font-weight: 650; padding: 9px 18px;
         }
         .block { background: #e7ebf0; color: #172033; }
-        .open { background: #a51d24; color: #fff; }
         button:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
       </style>
       <div class="backdrop">
@@ -91,7 +90,6 @@
           <p class="url"></p>
           <div class="buttons">
             <button class="block" type="button">No, block</button>
-            <button class="open" type="button">Yes, open anyway</button>
           </div>
         </section>
       </div>
@@ -104,14 +102,6 @@
     }
 
     shadow.querySelector(".block").addEventListener("click", closeWarning);
-    shadow.querySelector(".open").addEventListener("click", () => {
-      closeWarning();
-      if (openInNewTab) {
-        window.open(url, "_blank", "noopener,noreferrer");
-      } else {
-        window.location.assign(url);
-      }
-    });
     shadow.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeWarning();
@@ -142,14 +132,7 @@
 
     event.preventDefault();
     event.stopImmediatePropagation();
-    showWarning(
-      anchor.href,
-      anchor.target === "_blank" ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.shiftKey ||
-        event.button === 1
-    );
+    showWarning(anchor.href);
   }
 
   document.addEventListener("click", handleLinkActivation, true);

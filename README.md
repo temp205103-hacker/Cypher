@@ -124,13 +124,13 @@ Install the unpacked extension from `browser-extension/phishing-guard`:
 3. Choose **Load unpacked** and select the `browser-extension/phishing-guard` folder.
 4. Reload tabs that were already open.
 
-The extension checks links on web pages against a locally cached OpenPhish community feed.
-If a match is found, choose **No, block** to cancel navigation or **Yes, open anyway** to proceed.
-Use the extension icon to check feed status or request an update.
+The extension checks links on web pages against a locally cached OpenPhish community feed and
+blocks matching browser requests, including links pasted into the address bar. Matching links on
+pages also show a warning. Use the extension icon to check feed status or request an update.
 
-The feed is downloaded from GitHub; visited URLs are checked locally and are not sent to the feed
-provider. This blocklist cannot catch every phishing link. It checks page links, not URLs typed
-directly into the address bar, links opened in other apps, or all redirected navigation.
+The feed is downloaded from GitHub; URLs you visit are checked locally and are not sent to the feed
+provider. This blocklist cannot catch every phishing link, and protection is unavailable when the
+feed has not loaded. It protects Chrome/Edge only, not links opened in other apps.
 
 ### VPN and IP diagnostics
 
@@ -256,14 +256,15 @@ GuardSnitch.ai scan --staged
 GuardSnitch.ai redact .\notes.txt
 GuardSnitch.ai explain <finding-id>
 GuardSnitch.ai ask "How should I handle an exposed token?"
-GuardSnitch.ai safe-run https://example.com/script.py
+GuardSnitch.ai safe-run https://example.com/login
 GuardSnitch.ai install-hook
 ```
 
 The local source scanner checks for selected secret/PII patterns and risky code constructs; it is
 heuristic and can produce false positives or miss vulnerabilities. `redact` writes a separate
-`.redacted` file by default. `safe-run` inspects public HTTP(S) downloads as text and never executes
-them. The pre-commit hook scans staged Git content and blocks a commit when it reports findings.
+`.redacted` file by default. `safe-run` checks URL-only risk indicators locally; it never opens or
+contacts the URL. Its heuristics cannot establish that an unverified site is safe. The pre-commit
+hook scans staged Git content and blocks a commit when it reports findings.
 
 Recurring schedules use Windows Task Scheduler. Configure malware scans with
 `GuardSnitch.ai malware schedule hourly`, `daily`, or `off`; configure IP rotation with

@@ -5,6 +5,7 @@
   "description": "Checks browser page links against a locally cached phishing feed.",
   "permissions": [
     "alarms",
+    "declarativeNetRequest",
     "storage"
   ],
   "host_permissions": [

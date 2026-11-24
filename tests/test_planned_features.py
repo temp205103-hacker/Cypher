@@ -45,10 +45,35 @@ def test_redaction_writes_a_separate_dashboard_output(tmp_path: Path) -> None:
 
 
 def test_safe_run_rejects_loopback_without_fetching(monkeypatch) -> None:
-    monkeypatch.setattr(safe_run, "build_opener", lambda *_args: pytest.fail("must not fetch"))
+    import socket
+
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_args, **_kwargs: pytest.fail("must not resolve"))
 
     with pytest.raises(safe_run.SafeRunError, match="public"):
         safe_run.inspect_url("http://127.0.0.1/script.py")
+
+
+def test_safe_run_scores_public_url_without_network_activity(monkeypatch) -> None:
+    import socket
+
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *_args, **_kwargs: pytest.fail("must not resolve"))
+    monkeypatch.setattr(socket, "create_connection", lambda *_args, **_kwargs: pytest.fail("must not connect"))
+
+    result = safe_run.inspect_url("https://user:secret@bit.ly/login?token=private")
+
+    assert result["status"] == "suspicious"
+    assert result["network_contacted"] is False
+    assert result["opened"] is False
+    assert result["url"] == "https://bit.ly/"
+    assert "secret" not in str(result)
+    assert "private" not in str(result)
+
+
+def test_safe_run_normalizes_unicode_host_for_punycode_detection() -> None:
+    result = safe_run.inspect_url("https://раураl.example/")
+
+    assert result["status"] == "unverified"
+    assert any(item["id"] == "punycode-host" for item in result["findings"])
 
 
 def test_schedule_validates_intervals_and_creates_expected_task(monkeypatch) -> None:

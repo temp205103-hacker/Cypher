@@ -897,8 +897,8 @@ def quarantine_delete(item_id: str) -> None:
 
 
 @app.command("safe-run")
-def safe_run(url: str = typer.Argument(..., help="Public HTTP(S) script URL to inspect.")) -> None:
-    """Download and inspect a public script without executing it."""
+def safe_run(url: str = typer.Argument(..., help="Public HTTP(S) URL to check locally.")) -> None:
+    """Check a URL without opening it or contacting its destination."""
     try:
         result = safe_run_core.inspect_url(url)
     except (safe_run_core.SafeRunError, OSError, ValueError) as exc:
