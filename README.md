@@ -166,6 +166,12 @@ Install ClamAV or YARA locally and make the executable available on `PATH`. Clam
 should be kept current. The included YARA rules are examples, not a complete antivirus engine.
 
 ```powershell
+GuardSnitch.ai fscan --help
+GuardSnitch.ai fscan
+GuardSnitch.ai fscan --quick
+GuardSnitch.ai fscan --full
+GuardSnitch.ai fscan --path "C:\Users\you\Downloads"
+GuardSnitch.ai fscan --usb
 GuardSnitch.ai malware status
 GuardSnitch.ai malware scan
 GuardSnitch.ai malware scan "C:\Users\you\Downloads"
@@ -181,6 +187,15 @@ GuardSnitch.ai quarantine restore <finding-id>
 GuardSnitch.ai quarantine delete <finding-id>
 GuardSnitch.ai malware monitor stop
 ```
+
+`fscan` is the first local file-protection layer: it hashes files, checks the bundled local hash
+lists, and reports explainable filename/location signals. It scans common user-risk folders by
+default; `--full` visits mounted fixed drives and `--usb` visits mounted removable drives. Repeat
+scans use a local SQLite hash cache, and `.guardignore` patterns are honored. This initial layer
+does **not** yet verify digital signatures, inspect executable/script contents, or run YARA/PE
+analysis; it is not an antivirus verdict and cannot establish that an unlisted file is safe.
+`--format` accepts `json`, `md`, or `html`; `--verbose` prints evidence. Exit codes are 0 for no
+findings, 1 for findings/partial scans, and 2 when the risk scorer reaches Dangerous.
 
 Manual scans run when requested. The optional monitor scans completed files in your Downloads
 folder and queues findings; it does not remove files automatically. Isolating, restoring, or

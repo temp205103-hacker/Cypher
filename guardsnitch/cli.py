@@ -13,6 +13,7 @@ import webbrowser
 
 import typer
 from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from guardsnitch.banner import show_banner
 from guardsnitch.config import GuardConfig
@@ -37,6 +38,13 @@ from guardsnitch.core.ai import answer_question, explain_risk
 from guardsnitch.core.redact import redact_text
 from guardsnitch.ip import history as ip_history_store
 from guardsnitch.web.api_version import DASHBOARD_API_VERSION
+from guardsnitch.fscan.engine import (
+    DEFAULT_MAX_FILE_SIZE,
+    QUICK_MAX_FILE_SIZE,
+    ScanOptions,
+    scan_paths as run_fscan,
+    select_roots as select_fscan_roots,
+)
 
 console = Console()
 
@@ -240,7 +248,7 @@ def root(
         console.print("[red]Use --country together with --vpn.[/]")
         raise typer.Exit(code=2)
 
-    if ctx.invoked_subcommand in {"vpn", "shield", "setup"} or ctx.resilient_parsing:
+    if ctx.invoked_subcommand in {"vpn", "shield", "setup", "fscan"} or ctx.resilient_parsing:
         return
 
     if online and ctx.invoked_subcommand is None:
@@ -269,6 +277,134 @@ def setup(reset: bool = typer.Option(False, "--reset", help="Reset and re-run se
     except (KeyboardInterrupt, EOFError):
         console.print("\n[yellow]Setup cancelled.[/] ")
         raise typer.Exit(code=0)
+
+
+@app.command()
+def fscan(
+    quick: bool = typer.Option(False, "--quick", help="Scan common risk folders; skip files larger than 32 MiB."),
+    full: bool = typer.Option(False, "--full", help="Scan mounted local fixed drives; may take hours."),
+    path: Optional[Path] = typer.Option(None, "--path", help="Scan one file or directory."),
+    usb: bool = typer.Option(False, "--usb", help="Scan mounted removable drives only."),
+    format: str = typer.Option("text", "--format", help="Report format: text, json, md, or html."),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Hide progress and show only the summary."),
+    verbose: bool = typer.Option(False, "--verbose", help="Show detailed evidence for every finding."),
+) -> None:
+    """Scan common risk folders locally using hashes and cautious context heuristics.
+
+    Examples:
+      GuardSnitch.ai fscan
+      GuardSnitch.ai fscan --quick
+      GuardSnitch.ai fscan --full --format json
+      GuardSnitch.ai fscan --path "C:\\Users\\you\\Downloads"
+      GuardSnitch.ai fscan --usb
+    """
+    selected_modes = sum((quick, full, path is not None, usb))
+    if selected_modes > 1:
+        console.print("[red]Choose only one of --quick, --full, --path, or --usb.[/]")
+        raise typer.Exit(code=2)
+    if format not in {"text", "json", "md", "html"}:
+        console.print("[red]Format must be text, json, md, or html.[/]")
+        raise typer.Exit(code=2)
+
+    try:
+        if path is not None:
+            target = path.expanduser()
+            if not target.exists():
+                raise FileNotFoundError(f"Scan path does not exist: {target}")
+            roots = [target]
+            options = ScanOptions(
+                include_project=True,
+                max_file_size=None if full else QUICK_MAX_FILE_SIZE if quick else DEFAULT_MAX_FILE_SIZE,
+            )
+        else:
+            roots = select_fscan_roots(full=full, usb_only=usb)
+            options = ScanOptions(
+                full=full,
+                usb_only=usb,
+                max_file_size=None if full else QUICK_MAX_FILE_SIZE if quick else DEFAULT_MAX_FILE_SIZE,
+            )
+
+        if quiet:
+            report = run_fscan(roots, options=options)
+        else:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("{task.description}"),
+                TimeElapsedColumn(),
+                console=Console(stderr=True),
+                transient=False,
+            ) as progress:
+                task_id = progress.add_task("Preparing local scan…", total=None)
+
+                def on_file(current: Path, count: int) -> None:
+                    progress.update(
+                        task_id,
+                        description=f"Files scanned: {count} · {current}",
+                    )
+
+                report = run_fscan(roots, options=options, on_file=on_file)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Scan interrupted. No files were modified.[/]")
+        raise typer.Exit(code=130)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console.print(f"[red]File scan failed:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if format == "json":
+        console.print_json(json.dumps(report))
+    elif format == "md":
+        console.print("| Risk | Score | Confidence | File | Evidence |", markup=False)
+        console.print("|---|---:|---|---|---|", markup=False)
+        for finding in report["findings"]:
+            evidence = "; ".join(item["evidence"] for item in finding["evidence"])
+            console.print(
+                f"| {finding['verdict']} | {finding['score']} | {finding['confidence']} | "
+                f"{finding['path']} | {evidence} |",
+                markup=False,
+            )
+        console.print(f"\nScanned **{report['files_scanned']}** files · max risk **{report['risk_score']}/100**", markup=False)
+    elif format == "html":
+        rows = []
+        for finding in report["findings"]:
+            evidence = "; ".join(item["evidence"] for item in finding["evidence"])
+            cells = (finding["verdict"], finding["score"], finding["confidence"], finding["path"], evidence)
+            rows.append("<tr>" + "".join(f"<td>{_html_escape(str(value))}</td>" for value in cells) + "</tr>")
+        html = (
+            "<!doctype html><meta charset=\"utf-8\"><title>GuardSnitch file scan</title>"
+            f"<h1>File scan: {_html_escape(report['status'])}</h1>"
+            f"<p>Files scanned: {report['files_scanned']} · Max risk: {report['risk_score']}/100</p>"
+            "<table><thead><tr><th>Risk</th><th>Score</th><th>Confidence</th><th>File</th><th>Evidence</th>"
+            f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        )
+        console.print(html, markup=False)
+    else:
+        console.print(
+            f"File scan {report['status']}: {report['files_scanned']} files · "
+            f"{report['files_skipped_size']} oversized file(s) skipped · "
+            f"Risk score {report['risk_score']}/100"
+        )
+        console.print(
+            "Verdicts: "
+            + ", ".join(f"{name} {count}" for name, count in report["counts"].items())
+        )
+        if not quiet:
+            for finding in report["findings"][:5 if not verbose else None]:
+                console.print(
+                    f"[yellow]{finding['verdict']}[/] {finding['score']}/100 "
+                    f"({finding['confidence']} confidence) · {finding['path']}"
+                )
+                if verbose:
+                    for evidence in finding["evidence"]:
+                        console.print(f"  • {evidence['evidence']}")
+                    console.print(f"  Why: {finding['explanation']}")
+            if report["errors"]:
+                console.print(f"[yellow]Skipped or unreadable paths: {len(report['errors'])}[/]")
+        console.print(f"What to do next: {report['what_to_do_next']}")
+
+    if any(finding["verdict"] == "Dangerous" for finding in report["findings"]):
+        raise typer.Exit(code=2)
+    if report["findings"] or report["status"] == "partial":
+        raise typer.Exit(code=1)
 
 
 @app.command()

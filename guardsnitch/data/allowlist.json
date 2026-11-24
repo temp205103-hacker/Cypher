@@ -1,0 +1,4 @@
+{
+  "description": "Optional SHA-256 allowlist. Add only hashes verified from a trusted source.",
+  "sha256": []
+}
