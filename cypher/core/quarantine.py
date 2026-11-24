@@ -106,6 +106,10 @@ def quarantine_finding(item_id: str) -> dict[str, Any]:
     source = Path(str(item["path"]))
     if source.is_symlink() or not source.is_file():
         raise FileNotFoundError(f"Detected file no longer exists: {source}")
+
+    from cypher.fscan.trust import is_excluded_path
+    if is_excluded_path(source):
+        raise ValueError(f"Protected system or project path cannot be quarantined: {source}")
     try:
         current_stat = source.stat()
     except OSError as exc:
@@ -131,6 +135,10 @@ def quarantine_finding(item_id: str) -> dict[str, Any]:
         raise
 
     item["status"] = "quarantined"
+    try:
+        os.chmod(destination, 0o600)
+    except OSError:
+        pass
     _save_items(items)
     return item
 

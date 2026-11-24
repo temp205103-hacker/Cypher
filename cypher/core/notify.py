@@ -20,20 +20,23 @@ class EmailNotifier:
         folder = appdata_dir() / "theft-alerts"
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / f"{snapshot.timestamp.replace(':', '-')}.json"
-        target.write_text(
-            json.dumps(
-                {
-                    "timestamp": snapshot.timestamp,
-                    "score": snapshot.score,
-                    "signals": snapshot.signals,
-                    "location": location.description,
-                    "maps_url": location.maps_url(),
-                    "source": location.source,
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        raw = json.dumps(
+            {
+                "timestamp": snapshot.timestamp,
+                "score": snapshot.score,
+                "signals": snapshot.signals,
+                "location": location.description,
+                "maps_url": location.maps_url(),
+                "source": location.source,
+            },
+            indent=2,
+        ).encode("utf-8")
+        target.write_bytes(raw)
+        try:
+            from cypher.core.evidence import encrypt_evidence
+            encrypt_evidence(raw, f"alert-{snapshot.timestamp.replace(':', '-')}")
+        except Exception:
+            pass
         return target
 
     def send_test_alert(

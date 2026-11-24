@@ -21,19 +21,41 @@ RISK_PATTERNS = (
     ("dynamic-eval", re.compile(r"\b(?:eval|exec)\s*\("), "Dynamic code execution"),
     ("shell-true", re.compile(r"\bshell\s*=\s*True\b"), "Shell execution enabled"),
     ("disabled-tls", re.compile(r"\bverify\s*=\s*False\b"), "TLS verification disabled"),
+    ("sql-injection", re.compile(r"(?i)\b(?:cursor\.execute|execute)\s*\(\s*f['\"][^'\"]*\{"), "Possible SQL injection formatting"),
+    ("weak-crypto", re.compile(r"(?i)\b(?:hashlib\.md5|hashlib\.sha1)\b"), "Weak cryptographic hash function"),
 )
+
+SEVERITY_MAP = {
+    "private_key": "critical",
+    "aws_access_key": "high",
+    "generic_token": "high",
+    "database_url": "high",
+    "password_assignment": "high",
+    "credit_card": "high",
+    "ssn": "high",
+    "sql-injection": "high",
+    "dynamic-eval": "high",
+    "shell-true": "medium",
+    "disabled-tls": "medium",
+    "weak-crypto": "medium",
+    "email": "medium",
+    "phone": "medium",
+}
 
 
 def _finding(path: str, line_number: int, category: str, value: str, line: str) -> dict[str, object]:
     fingerprint = hashlib.sha256(
         f"{path}:{line_number}:{category}:{value}".encode("utf-8", errors="replace")
     ).hexdigest()[:16]
+    severity = SEVERITY_MAP.get(category, "medium")
+    score_map = {"critical": 90, "high": 75, "medium": 45, "low": 20}
     return {
         "id": fingerprint,
         "path": path,
         "line": line_number,
         "category": category,
-        "severity": "high" if category in {"private_key", "aws_access_key"} else "medium",
+        "severity": severity,
+        "score": score_map.get(severity, 50),
         "message": category.replace("-", " ").replace("_", " ").capitalize(),
         "snippet": redact_text(line.strip())[:240],
     }

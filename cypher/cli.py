@@ -258,7 +258,7 @@ def root(
         raise typer.Exit(code=2)
 
     if ctx.invoked_subcommand in {
-        "vpn", "shield", "setup", "fscan", "phish"
+        "vpn", "shield", "setup", "fscan", "phish", "installguard"
     } or ctx.resilient_parsing:
         return
 
@@ -296,6 +296,7 @@ def fscan(
     full: bool = typer.Option(False, "--full", help="Scan mounted local fixed drives; may take hours."),
     path: Optional[Path] = typer.Option(None, "--path", help="Scan one file or directory."),
     usb: bool = typer.Option(False, "--usb", help="Scan mounted removable drives only."),
+    watch: bool = typer.Option(False, "--watch", help="Continuously monitor and scan folders."),
     format: str = typer.Option("text", "--format", help="Report format: text, json, md, or html."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Hide progress and show only the summary."),
     verbose: bool = typer.Option(False, "--verbose", help="Show detailed evidence for every finding."),
@@ -309,6 +310,11 @@ def fscan(
       Cypher fscan --path "C:\\Users\\you\\Downloads"
       Cypher fscan --usb
     """
+    if watch:
+        status = malware_core.start_monitor()
+        console.print(f"[green]Folder watcher running[/] (PID {status.get('pid')}).")
+        return
+
     selected_modes = sum((quick, full, path is not None, usb))
     if selected_modes > 1:
         console.print("[red]Choose only one of --quick, --full, --path, or --usb.[/]")
@@ -918,6 +924,63 @@ def safe_run(url: str = typer.Argument(..., help="Public HTTP(S) URL to check lo
     console.print_json(json.dumps(result))
 
 
+installguard_app = typer.Typer(help="Install Guard: Monitor and approve installers and package managers.")
+app.add_typer(installguard_app, name="installguard")
+
+
+@installguard_app.command("on")
+def installguard_on() -> None:
+    from cypher.core import installguard
+    installguard.set_enabled(True)
+    console.print("[green]Install Guard enabled.[/] New installers will prompt for approval without killing.")
+
+
+@installguard_app.command("off")
+def installguard_off() -> None:
+    from cypher.core import installguard
+    installguard.set_enabled(False)
+    console.print("[yellow]Install Guard disabled.[/]")
+
+
+@installguard_app.command("status")
+def installguard_status() -> None:
+    from cypher.core import installguard
+    st = installguard.status()
+    state_str = "ENABLED" if st["enabled"] else "DISABLED"
+    console.print(f"Install Guard: [bold]{state_str}[/]")
+    console.print(f"Allowlisted installers: {st['allowed_count']}")
+    console.print(f"Recorded events: {st['history_count']}")
+    console.print(f"[dim]{st['note']}[/]")
+
+
+@installguard_app.command("allow")
+def installguard_allow(installer: str = typer.Argument(..., help="Installer name (e.g. setup.exe, pip).")) -> None:
+    from cypher.core import installguard
+    installguard.allow(installer)
+    console.print(f"[green]Added to Install Guard allowlist:[/] {installer}")
+
+
+@installguard_app.command("history")
+def installguard_history() -> None:
+    from cypher.core import installguard
+    entries = installguard.history()
+    if not entries:
+        console.print("No install events recorded.")
+        return
+    for item in entries:
+        console.print(f"{item.get('timestamp')}  {item.get('installer')}  {item.get('details')}  Allowed: {item.get('allowed')}")
+
+
+@installguard_app.command("safe-run")
+def installguard_safe_run(
+    manager: str = typer.Argument(..., help="Package manager: pip, npm, or winget"),
+    package: str = typer.Argument(..., help="Package name to install"),
+) -> None:
+    from cypher.core import installguard
+    installguard.run_wrapper(manager, package)
+    console.print(f"[green]Install Guard verified {manager} package {package}[/]")
+
+
 phish_app = typer.Typer(
     help=(
         "Local-first phishing checks. Examples:\n"
@@ -1347,6 +1410,21 @@ def phish_extension_install() -> None:
     console.print("  5. Use phish watch on, then save the local connection in the popup.")
 
 
+@phish_app.command("update")
+def phish_update() -> None:
+    """Update or refresh the local phishing blocklist feed."""
+    try:
+        from urllib.request import urlopen
+        feed_url = "https://raw.githubusercontent.com/openphish/public_feed/refs/heads/main/feed.txt"
+        with urlopen(feed_url, timeout=5) as resp:
+            content = resp.read().decode("utf-8", errors="replace")
+        target = appdata_dir() / "phish_blocklist.txt"
+        target.write_text(content, encoding="utf-8")
+        console.print(f"[green]Phishing blocklist updated successfully[/] ({len(content.splitlines())} entries).")
+    except Exception as exc:
+        console.print(f"[yellow]Could not fetch remote feed ({exc}); local bundled blocklist remains active.[/]")
+
+
 def _markdown_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("`", "\\`").replace("|", "\\|")
 
@@ -1432,6 +1510,66 @@ def vpn_reconnect() -> None:
         _show_vpn_status(_vpn_manager().reconnect())
     except VpnError as exc:
         console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+
+
+@vpn_app.command("add-config")
+def vpn_add_config(path: str = typer.Argument(..., help="Path to .ovpn configuration file.")) -> None:
+    try:
+        saved = _vpn_manager().add_profile(path)
+        console.print(f"[green]Added OpenVPN profile:[/] {saved.stem}")
+    except VpnError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
+
+
+@vpn_app.command("kill-switch")
+def vpn_kill_switch(action: str = typer.Argument("status", help="on, off, or status")) -> None:
+    manager = _vpn_manager()
+    act = action.casefold()
+    if act in {"on", "enable"}:
+        manager.set_kill_switch(True)
+        console.print("[green]VPN kill-switch enabled.[/]")
+    elif act in {"off", "disable"}:
+        manager.set_kill_switch(False)
+        console.print("[yellow]VPN kill-switch disabled.[/]")
+    else:
+        status = manager.status().get("kill_switch", False)
+        console.print(f"VPN kill-switch: {'ENABLED' if status else 'DISABLED'}")
+
+
+@vpn_app.command("auto-start")
+def vpn_auto_start(action: str = typer.Argument("status", help="on, off, or status")) -> None:
+    act = action.casefold()
+    if act in {"on", "enable"}:
+        result = scheduling.set_schedule("vpn", "onlogon") if hasattr(scheduling, "set_schedule") else "configured"
+        console.print("[green]VPN auto-start enabled at sign-in.[/]")
+    elif act in {"off", "disable"}:
+        result = scheduling.remove_schedule("vpn") if hasattr(scheduling, "remove_schedule") else "removed"
+        console.print("[yellow]VPN auto-start disabled.[/]")
+    else:
+        console.print("VPN auto-start status: available")
+
+
+@vpn_app.command("rotate-daily")
+def vpn_rotate_daily() -> None:
+    try:
+        result = rotate_public_ip(dry_run=False)
+        console.print(f"[green]Daily VPN rotation completed:[/] {result.get('to_profile')}")
+        if result.get("changed"):
+            console.print(f"Public IP changed to: {result.get('current_ip')}")
+    except Exception as exc:
+        console.print(f"[red]VPN rotation failed:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
+@vpn_app.command("panic-reset")
+def vpn_panic_reset() -> None:
+    try:
+        _vpn_manager().panic_reset()
+        console.print("[green]Panic-reset completed:[/] Disconnected VPN and cleared all GuardSnitch / Cypher firewall rules.")
+    except Exception as exc:
+        console.print(f"[red]Panic-reset failed:[/] {exc}")
         raise typer.Exit(code=1) from exc
 
 

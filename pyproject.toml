@@ -26,6 +26,9 @@ camera = ["opencv-python>=4.10,<5", "mss>=9,<10"]
 windows = ["winsdk>=1.0,<2"]
 
 [project.scripts]
+"GuardSnitch.ai" = "cypher.cli:main"
+"guardsnitch" = "cypher.cli:main"
+"gsnitch" = "cypher.cli:main"
 "cypher" = "cypher.cli:main"
 
 [tool.setuptools.packages.find]

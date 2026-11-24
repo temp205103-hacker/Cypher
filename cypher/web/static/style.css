@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: dark light;
   font-family: "DM Sans", "Segoe UI", sans-serif;
   background: #0b1020;
   color: #eef2ff;
@@ -15,6 +15,21 @@
   --violet: #ad91ff;
   --amber: #ffca7a;
   --red: #ff7f8e;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    background: #f4f6fa;
+    color: #172033;
+    --surface: #ffffff;
+    --surface-raised: #f8fafc;
+    --surface-soft: #edf2f7;
+    --line: rgba(30, 41, 59, .15);
+    --muted: #64748b;
+  }
+  body {
+    background: #f4f6fa;
+  }
 }
 
 * { box-sizing: border-box; }

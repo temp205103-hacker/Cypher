@@ -224,9 +224,11 @@ def block_remote_ip(remote_ip: str, remote_port: int = 0) -> dict[str, object]:
     except (OSError, subprocess.SubprocessError) as exc:
         return {"blocked": False, "error": str(exc)}
     if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"netsh returned {result.returncode}"
+        admin_note = " Administrator rights may be required to configure Windows Firewall rules."
         return {
             "blocked": False,
-            "error": result.stderr.strip() or result.stdout.strip() or f"netsh returned {result.returncode}",
+            "error": f"{detail}.{admin_note}",
         }
     return {"blocked": True, "ip": address, "port": remote_port or None, "rule": rule_name}
 

@@ -4,9 +4,14 @@ from __future__ import annotations
 
 
 def explain_risk(summary: str, redacted_snippet: str, offline: bool = True) -> str:
+    context = f"\nDetected snippet (Before):\n  - {redacted_snippet[:160]}" if redacted_snippet else ""
+    suggested_fix = (
+        "\nSuggested fix (After):\n  + os.getenv('CONFIGURED_SECRET')  # Load secret securely from environment or secret manager"
+        if any(w in summary.casefold() for w in ("key", "token", "password", "secret", "aws"))
+        else "\nSuggested fix (After):\n  + # Use safe parameterization and avoid dynamic code execution"
+    )
     if offline:
-        context = f" The relevant redacted code is: {redacted_snippet[:160]}." if redacted_snippet else ""
-        return f"Review required: {summary}. Remove or replace the risky value and validate the change.{context}"
+        return f"Review required: {summary}. Remove or replace the risky value and validate the change.{context}{suggested_fix}"
     return f"Cloud AI explanation unavailable in this module: {summary}"
 
 

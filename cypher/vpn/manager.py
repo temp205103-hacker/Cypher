@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import random
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -167,3 +170,49 @@ class VpnManager:
         if not country_code:
             raise VpnError("No previous VPN country is saved. Connect to a country first.")
         return self.connect(str(country_code))
+
+    def add_profile(self, config_path: str | Path) -> Path:
+        source = Path(config_path).expanduser()
+        if not source.is_file() or source.suffix.casefold() != ".ovpn":
+            raise VpnError(f"Valid .ovpn configuration file required: {source}")
+        target_dir = appdata_dir() / "openvpn_profiles"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        destination = target_dir / source.name
+        try:
+            shutil.copy2(source, destination)
+        except OSError as exc:
+            raise VpnError(f"Could not copy config: {exc}") from exc
+        return destination
+
+    def set_kill_switch(self, enabled: bool) -> dict[str, Any]:
+        state = self._load_state()
+        state["kill_switch"] = bool(enabled)
+        rule_name = "Cypher-VPN-KillSwitch"
+        if os.name == "nt":
+            if enabled:
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "add", "rule", f"name={rule_name}", "dir=out", "action=block", "protocol=ANY"],
+                    capture_output=True, check=False,
+                )
+            else:
+                subprocess.run(
+                    ["netsh", "advfirewall", "firewall", "delete", "rule", f"name={rule_name}"],
+                    capture_output=True, check=False,
+                )
+        self._save_state(state)
+        return state
+
+    def panic_reset(self) -> dict[str, Any]:
+        state = self.disconnect()
+        state["kill_switch"] = False
+        self._save_state(state)
+        if os.name == "nt":
+            # Remove any Cypher / GuardSnitch firewall rules
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", "Get-NetFirewallRule | Where-Object { $_.DisplayName -match 'Cypher|GuardSnitch' } | Remove-NetFirewallRule -ErrorAction SilentlyContinue"],
+                    capture_output=True, check=False, timeout=15,
+                )
+            except Exception:
+                pass
+        return state

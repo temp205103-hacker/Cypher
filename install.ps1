@@ -42,6 +42,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "The reverse-shell shield could not be registered for Windows sign-in."
 }
 
+$scriptsDir = Join-Path $venv "Scripts"
+$userPath = [Environment]::GetEnvironmentVariable("Path", [EnvironmentVariableTarget]::User)
+if ($userPath -split ';' -notcontains $scriptsDir) {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$scriptsDir", [EnvironmentVariableTarget]::User)
+    $env:Path = "$env:Path;$scriptsDir"
+}
+
 Write-Host ""
-Write-Host "Installed Cypher and enabled the background shield." -ForegroundColor Green
-Write-Host 'Open a new PowerShell and run: Cypher -h'
+Write-Host "Installed GuardSnitch / Cypher and enabled the background shield." -ForegroundColor Green
+Write-Host 'Open a new PowerShell and run: GuardSnitch.ai -h or guardsnitch -h'

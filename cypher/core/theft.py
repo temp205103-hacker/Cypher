@@ -133,6 +133,14 @@ class TheftProtection:
             return False
 
         try:
+            config = CypherConfig.load()
+            if config.consent_webcam:
+                try:
+                    from cypher.core.evidence import capture_screenshot, capture_webcam
+                    capture_webcam()
+                    capture_screenshot()
+                except Exception:
+                    pass
             location = LocationResolver().resolve()
             notifier = EmailNotifier()
             notifier.queue_alert(snapshot, location)

@@ -59,7 +59,18 @@ def rotate(
     if not choices:
         raise IpRotationError("Add at least one other .ovpn profile to rotate to.")
 
-    target = random.choice(choices)
+    recent_profiles = set()
+    try:
+        from cypher.ip import history as ip_history_store
+        for entry in ip_history_store.load_history()[:10]:
+            to_p = entry.get("to_profile")
+            if to_p:
+                recent_profiles.add(Path(str(to_p)).resolve())
+    except Exception:
+        pass
+
+    eligible = [p for p in choices if p not in recent_profiles]
+    target = random.choice(eligible) if eligible else random.choice(choices)
     if dry_run:
         return {
             "method": "openvpn",

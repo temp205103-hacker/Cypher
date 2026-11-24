@@ -5,3 +5,15 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.aider*
+.env
+.env.*
+*.bak
+*.enc
+*.blocked
+*.log
+*.pid
+config.yaml
+quarantine/
+evidence/
+theft-alerts/
