@@ -133,9 +133,13 @@ feed has not loaded. It protects Chrome/Edge only, not links opened in other app
 
 ### VPN and IP diagnostics
 
-For real VPN connections, install OpenVPN, make `openvpn.exe` available on `PATH`, and place
-Existing `.ovpn` profiles are migrated to `%APPDATA%\Cypher\openvpn_profiles`. You can also pass
-an absolute profile path.
+For real VPN connections, install OpenVPN and make `openvpn.exe` available on `PATH`. In the web
+dashboard's **Network & VPN** page, follow OpenVPN Cloud/CloudConnexa's account setup, then import
+the `.ovpn` profile downloaded from the provider. Imported profiles are stored in
+`%APPDATA%\Cypher\openvpn_profiles` and can be selected to connect or disconnect from the dashboard.
+CloudConnexa account creation requires OpenVPN's email verification and Cloud ID setup, so those
+provider-hosted signup steps cannot be completed inside Cypher. Existing profiles are migrated to
+the same profile directory. You can also pass an absolute profile path to the CLI.
 
 ```powershell
 Cypher -v -c "my-profile"

@@ -71,6 +71,8 @@ class ActionRequest(BaseModel):
     path: Optional[str] = None
     output: Optional[str] = None
     country: Optional[str] = None
+    vpn_profile_name: Optional[str] = Field(default=None, max_length=255)
+    vpn_profile_content: Optional[str] = Field(default=None, max_length=1_000_000)
     item_id: Optional[str] = None
     process_name: Optional[str] = None
     ip: Optional[str] = None
@@ -313,6 +315,53 @@ def _vpn_dashboard_state() -> dict[str, Any]:
     return {"state": manager.status(), "available": available}
 
 
+def _import_vpn_profile(payload: ActionRequest) -> dict[str, str]:
+    if _new_vpn_manager().provider.name != "openvpn":
+        raise ValueError("OpenVPN profiles cannot be imported while mock VPN mode is enabled.")
+
+    name = _required(payload.vpn_profile_name, "OpenVPN profile filename").strip()
+    content = payload.vpn_profile_content
+    if content is None or not content.strip():
+        raise ValueError("OpenVPN profile contents are required.")
+    if (
+        Path(name).name != name
+        or "/" in name
+        or "\\" in name
+        or any(ord(character) < 32 for character in name)
+        or Path(name).suffix.casefold() != ".ovpn"
+    ):
+        raise ValueError("Choose a valid .ovpn profile filename.")
+    if "\0" in content:
+        raise ValueError("The OpenVPN profile contains invalid binary data.")
+    directives = {
+        line.strip().split(None, 1)[0].casefold()
+        for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if "client" not in directives or "remote" not in directives:
+        raise ValueError("The profile must contain OpenVPN client and remote directives.")
+
+    profile_dir = OpenVpnProvider().profile_dir
+    destination = profile_dir / name
+    created = False
+    try:
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_file = destination.open("x", encoding="utf-8", newline="")
+        created = True
+        with profile_file:
+            profile_file.write(content)
+    except FileExistsError as exc:
+        raise ValueError(f"An OpenVPN profile named '{name}' already exists.") from exc
+    except OSError as exc:
+        if created:
+            try:
+                destination.unlink()
+            except OSError:
+                pass
+        raise RuntimeError(f"Could not import OpenVPN profile: {exc}") from exc
+    return {"profile": name, "path": str(destination)}
+
+
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
     config = _status_section(CypherConfig.load)
@@ -456,6 +505,8 @@ def _perform_action(payload: ActionRequest) -> Any:
         return _new_vpn_manager().status()
     if action == "vpn.countries":
         return _vpn_dashboard_state()["available"]
+    if action == "vpn.import-profile":
+        return _import_vpn_profile(payload)
     if action == "ip.status":
         state = _new_vpn_manager().status()
         return {

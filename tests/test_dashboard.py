@@ -4,6 +4,7 @@ import asyncio
 from io import StringIO
 
 from fastapi import HTTPException
+import pytest
 from starlette.requests import Request
 from starlette.responses import Response
 from rich.console import Console
@@ -237,6 +238,56 @@ def test_dashboard_profile_save_stores_hashed_pin(monkeypatch, tmp_path) -> None
     assert result["email_delivery"] is False
     assert stored["disarm-pin"] != "test-pin"
     assert CypherConfig.load().name == "Test User"
+
+
+def test_dashboard_imports_cloudconnexa_profile(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.delenv("CYPHER_VPN_PROVIDER", raising=False)
+    content = "client\nremote vpn.example.com 1194\n"
+
+    result = dashboard._perform_action(
+        dashboard.ActionRequest(
+            action="vpn.import-profile",
+            vpn_profile_name="cloudconnexa.ovpn",
+            vpn_profile_content=content,
+        )
+    )
+
+    profile_path = tmp_path / "Cypher" / "openvpn_profiles" / "cloudconnexa.ovpn"
+    assert result["profile"] == "cloudconnexa.ovpn"
+    assert profile_path.read_text(encoding="utf-8") == content
+    assert {"name": "cloudconnexa", "code": "cloudconnexa"} in dashboard._vpn_dashboard_state()["available"]
+
+
+def test_dashboard_rejects_invalid_or_duplicate_vpn_profiles(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.delenv("CYPHER_VPN_PROVIDER", raising=False)
+
+    with pytest.raises(ValueError, match="valid .ovpn"):
+        dashboard._perform_action(
+            dashboard.ActionRequest(
+                action="vpn.import-profile",
+                vpn_profile_name="../escape.ovpn",
+                vpn_profile_content="client\nremote vpn.example.com\n",
+            )
+        )
+    with pytest.raises(ValueError, match="client and remote"):
+        dashboard._perform_action(
+            dashboard.ActionRequest(
+                action="vpn.import-profile",
+                vpn_profile_name="invalid.ovpn",
+                vpn_profile_content="client\n",
+            )
+        )
+
+    profile = dashboard.ActionRequest(
+        action="vpn.import-profile",
+        vpn_profile_name="duplicate.ovpn",
+        vpn_profile_content="client\nremote vpn.example.com\n",
+    )
+    dashboard._perform_action(profile)
+    with pytest.raises(ValueError, match="already exists"):
+        dashboard._perform_action(profile)
 
 
 def test_firewall_ip_block_normalizes_address_and_creates_scoped_rule(monkeypatch) -> None:

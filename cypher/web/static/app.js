@@ -597,6 +597,24 @@ async function postAction(button, extra = {}) {
   }
   if (action.startsWith("theft.safe-zones.")) payload.ssid = byId("safe-zone-ssid").value.trim();
   if (action === "vpn.connect") payload.country = byId("vpn-country").value || null;
+  if (action === "vpn.import-profile") {
+    const profile = byId("vpn-profile-file").files[0];
+    if (!profile) {
+      toast("Choose a CloudConnexa .ovpn profile first.", true);
+      return;
+    }
+    if (!profile.name.toLowerCase().endsWith(".ovpn") || profile.size > 1_000_000) {
+      toast("Choose a .ovpn profile of at most 1 MB.", true);
+      return;
+    }
+    payload.vpn_profile_name = profile.name;
+    try {
+      payload.vpn_profile_content = await profile.text();
+    } catch (error) {
+      toast(error.message || "Could not read the selected profile.", true);
+      return;
+    }
+  }
   if (action.startsWith("quarantine.") || action === "malware.stop-process") payload.item_id = button.dataset.itemId;
   if (action === "shield.allow") payload.process_name = byId("process-name").value.trim();
   if (action === "shield.block-ip") payload.ip = byId("block-ip").value.trim();
@@ -623,6 +641,7 @@ async function postAction(button, extra = {}) {
     const report = response.ok ? data : data.detail?.report;
     if (!report) throw new Error(data.detail?.message || `Action failed (${response.status}).`);
     if (action === "theft.disarm") byId("disarm-pin").value = "";
+    if (action === "vpn.import-profile" && report.status === "completed") byId("vpn-profile-file").value = "";
     if (action === "shield.allow") byId("process-name").value = "";
     if (action === "shield.block-ip") byId("block-ip").value = "";
     if (action === "theft.safe-zones.add" || action === "theft.safe-zones.remove") byId("safe-zone-ssid").value = "";

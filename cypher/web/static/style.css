@@ -181,7 +181,7 @@ h3 { margin: 14px 0 5px; font-size: 14px; letter-spacing: -.2px; }
 .orbit-dot { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
 .dot-one { top: 24px; left: 75px; }.dot-two { right: 3px; top: 75px; background: #a88bff; box-shadow: 0 0 12px #a88bff; }.dot-three { bottom: 4px; left: 93px; background: #76a8ff; box-shadow: 0 0 12px #76a8ff; }
 
-.button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 9px; font-size: 11px; font-weight: 700; cursor: pointer; transition: transform .15s ease, filter .15s ease, border-color .15s ease; }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 9px; font-size: 11px; font-weight: 700; text-decoration: none; cursor: pointer; transition: transform .15s ease, filter .15s ease, border-color .15s ease; }
 .button:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .button:disabled { opacity: .5; cursor: wait; transform: none; }
 .button-primary { color: #08151c; background: linear-gradient(110deg, #73f3dc, #76d9fa); box-shadow: 0 5px 16px rgba(81, 228, 211, .12); }
